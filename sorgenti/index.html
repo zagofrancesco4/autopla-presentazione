@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Autopla</title>
+<meta name="description" content="Robot che innaffia i vasi del balcone">
+<link rel="icon" href="data:,">
+<meta name="theme-color" content="#0b0b0c">
+<link rel="preload" href="./asset/font/inter-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
+<style>#posterBox{position:absolute;inset:0;z-index:1;pointer-events:none;background:#0b0b0c}#poster{width:100%;height:100%;object-fit:cover;display:block}</style>
+</head>
+<body>
+<div id="app" class="nosheet">
+  <header id="head">
+    <div class="tt">
+      <h1>Autopla</h1>
+      <div class="sub">Robot che innaffia i vasi del balcone</div>
+    </div>
+    <button id="bCycle">▶ Ciclo</button>
+  </header>
+
+  <div id="viewport">
+    <div id="loading">Caricamento…</div>
+    <picture id="posterBox" data-v2><source type="image/avif" srcset="./poster-1920.avif 1920w, ./poster-3840.avif 3840w" sizes="100vw"><img id="poster" alt="" src="./poster-1920.webp" srcset="./poster-1920.webp 1920w, ./poster-3840.webp 3840w" sizes="100vw" fetchpriority="high" decoding="async" onload="(window.__tempi=window.__tempi||{}).poster=performance.now()"></picture>
+    <div id="hint">Tocca un numero o un pezzo · tocca la box per il dettaglio</div>
+    <button id="bHome" title="Rimetti la vista" aria-label="Rimetti la vista">⟲</button>
+    <div id="vistePres"><button data-q="panoramica">Panoramica</button><button data-q="rotaia">Rotaia e vasi</button><button data-q="segui">Segui il carrello</button><button data-q="dettaglio">Dettaglio meccanismo</button></div>
+  </div>
+
+  <section id="sheet" hidden>
+    <div id="sheetHead">
+      <div class="badge" id="sheetBadge">1</div>
+      <div class="ht"><div id="sheetTitle"></div><div id="sheetSub"></div></div>
+      <button id="sheetClose" aria-label="Chiudi">✕</button>
+    </div>
+    <div id="sheetBody"></div>
+  </section>
+
+  <nav id="parts"></nav>
+</div>
+
+<div id="mech" hidden>
+  <header id="mechHead">
+    <div class="tt"><h2>Meccanismo</h2><div class="sub" id="mechSub">Gemello digitale del meccanismo</div></div>
+    <button id="mechColor">Colori: funzioni</button>
+    <button id="mechCk">Controlli</button>
+    <button id="mechClose" aria-label="Chiudi">✕</button>
+  </header>
+  <div id="mechView"><div id="mechChecks"></div><div id="mechInfo" hidden></div><div id="mechLegend"></div><div id="mechPanel" hidden></div>
+    <svg id="mechLines"></svg><div id="mechTags"></div>
+    <div id="mechScale" hidden><div id="mechScaleBar"></div><span id="mechScaleT"></span></div></div>
+  <nav id="mechBar">
+    <button data-a="animazione">▶ Animazione</button><button data-a="esploso">Esploso</button><button data-a="sezione">Sezione</button>
+    <button data-a="eccentrico">Eccentrico</button><button data-a="trasparenza">Trasparenza box</button><button data-a="etichette">Etichette</button>
+    <button data-v="fronte">Fronte</button><button data-v="lato">Lato</button><button data-v="alto">Alto</button><button data-v="iso">Isometrica</button>
+    <button data-a="reset">⟲ Reset</button>
+  </nav>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

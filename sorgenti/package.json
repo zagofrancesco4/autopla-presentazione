@@ -1,0 +1,20 @@
+{
+  "name": "autopla-v2",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Autopla: presentazione 3D del robot che innaffia i vasi del balcone",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:veloce": "vite build",
+    "preview": "vite preview --port 4173 --strictPort"
+  },
+  "dependencies": {
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "vite": "8.3.8"
+  }
+}
