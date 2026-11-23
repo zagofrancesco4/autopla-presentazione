@@ -1,7 +1,7 @@
 /* Autopla v2 — interfaccia nero/grigio (sez. 12). Stessi id, classi e testi dell'originale. */
 @font-face { font-family: 'Inter'; src: url('/asset/font/inter-latin-wght.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
 :root {
-  --bg: #0b0b0c; --pannello: rgba(22, 22, 24, .78); --pannello-pieno: #161618; --bordo: rgba(255, 255, 255, .08); --bordo-forte: rgba(255, 255, 255, .14);
+  --bg: #0b0b0c; --pannello: rgba(14, 15, 18, .90); --pannello-pieno: #161618; --bordo: rgba(255, 255, 255, .08); --bordo-forte: rgba(255, 255, 255, .14);
   --testo: #ededee; --secondario: #a1a1a6; --terziario: #6e6e73; --attivo: #ffffff; --su-attivo: #0b0b0c;
   --quota: #f5b942; --ok: #30d158; --wn: #ffd60a; --ko: #ff453a;
   --r: 12px; --ombra: 0 8px 24px rgba(0, 0, 0, .35), 0 1px 2px rgba(0, 0, 0, .4);
@@ -14,17 +14,15 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--testo); font-family: var(--font); font-feature-settings: 'cv11', 'ss01'; -webkit-font-smoothing: antialiased }
 button { font-family: inherit; color: inherit; cursor: pointer }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--attivo); outline-offset: 2px }
-.vetro { background: var(--pannello); -webkit-backdrop-filter: blur(20px) saturate(1.1) brightness(.35); backdrop-filter: blur(20px) saturate(1.1) brightness(.35) }
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { :root { --pannello: var(--pannello-pieno) } }
 
 #app { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg) }
-#head { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 7px 12px 7px 16px; background: var(--bg); border-bottom: 1px solid var(--bordo); height: 59px }
+#head { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 7px 12px 7px 16px; background: var(--bg); border-bottom: 1px solid var(--bordo); height: 52px }
 #head .tt { flex: 1; min-width: 0 }
 #head h1 { margin: 0; font-size: 16px; line-height: 1.2; font-weight: 650; letter-spacing: -.01em }
 #head .sub { font-size: 12.5px; color: var(--secondario); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 #bCycle { flex: 0 0 auto; min-height: 44px; padding: 0 18px; border: 0; border-radius: 22px; background: var(--attivo); color: var(--su-attivo); font-weight: 650; font-size: 14.5px; letter-spacing: -.005em; box-shadow: 0 1px 2px rgba(0, 0, 0, .4) }
 #bCycle:hover { background: #e9e9ea }
-#viewport { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; touch-action: none;
+#viewport { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden;
   /* sfondo tecnico grigio scuro: griglia millimetrata (10 px / 50 px), crocette ogni 100 px, luce morbida al centro */
   background-color: #141517;
   background-image:
@@ -40,17 +38,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--attivo); ou
 /* vignettatura: bordi scuri in CSS, nessun costo sulla GPU */
 #viewport::after { content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(ellipse 75% 70% at 50% 48%, rgba(11, 11, 12, 0) 55%, rgba(11, 11, 12, .55) 100%) }
 #labels { position: absolute !important; top: 0; left: 0; pointer-events: none; z-index: 1 }
-#hint { position: absolute; left: 12px; top: 12px; z-index: 2; font-size: 12.5px; color: var(--secondario); background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); border: 1px solid var(--bordo); border-radius: 10px; padding: 6px 10px; pointer-events: none }
-#bHome { position: absolute; right: 12px; bottom: 12px; z-index: 2; width: 44px; height: 44px; border-radius: 22px; border: 1px solid var(--bordo-forte); background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); color: var(--testo); font-size: 19px; box-shadow: var(--ombra) }
-#vistePres { position: absolute; right: 12px; top: 12px; z-index: 2; display: flex; gap: 2px; padding: 3px; max-width: calc(100% - 24px); overflow-x: auto; scrollbar-width: none; background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); border: 1px solid var(--bordo); border-radius: 12px; box-shadow: var(--ombra) }
+#hint { position: absolute; left: 12px; top: 12px; z-index: 2; font-size: 12.5px; color: var(--secondario); background: var(--pannello); border: 1px solid var(--bordo); border-radius: 10px; padding: 6px 10px; pointer-events: none }
+#bHome { position: absolute; right: 12px; bottom: 12px; z-index: 2; width: 44px; height: 44px; border-radius: 22px; border: 1px solid var(--bordo-forte); background: var(--pannello); color: var(--testo); font-size: 19px; box-shadow: var(--ombra) }
+#vistePres { position: absolute; left: 12px; bottom: 12px; width: fit-content; z-index: 2; display: flex; gap: 2px; padding: 3px; max-width: calc(100% - 80px); overflow-x: auto; scrollbar-width: none; background: var(--pannello); border: 1px solid var(--bordo); border-radius: 12px; box-shadow: var(--ombra) }
 #vistePres::-webkit-scrollbar { display: none }
-#vistePres button { flex: 0 0 auto; min-height: 36px; padding: 0 13px; border-radius: 9px; border: 0; background: transparent; color: var(--secondario); font-size: 13px; font-weight: 550; white-space: nowrap }
+#vistePres button { flex: 0 0 auto; min-height: 44px; padding: 0 13px; border-radius: 9px; border: 0; background: transparent; color: var(--secondario); font-size: 13px; font-weight: 550; white-space: nowrap }
 #vistePres button:hover { color: var(--testo) }
 #vistePres button.on { background: var(--attivo); color: var(--su-attivo) }
-@media (max-width:767px) { #hint { top: 62px } #vistePres { left: 12px; right: 12px } }
+@media (max-width:767px) { #head .sub { display: none } }
 #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--secondario); font-size: 15px }
 
-#sheet { flex: 0 0 auto; max-height: 42%; display: flex; flex-direction: column; background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); border-top: 1px solid var(--bordo); box-shadow: 0 -8px 24px rgba(0, 0, 0, .35); border-radius: 14px 14px 0 0; position: relative; z-index: 3 }
+#sheet { flex: 0 0 auto; max-height: 42%; display: flex; flex-direction: column; background: var(--pannello); border-top: 1px solid var(--bordo); box-shadow: 0 -8px 24px rgba(0, 0, 0, .35); border-radius: 14px 14px 0 0; position: relative; z-index: 3 }
 #sheetHead { display: flex; align-items: center; gap: 12px; padding: 12px 8px 6px 16px }
 #sheetHead .badge { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 15px; background: var(--attivo); color: var(--su-attivo); display: flex; align-items: center; justify-content: center; font-weight: 650; font-size: 14px; font-variant-numeric: tabular-nums }
 #sheetHead .ht { flex: 1; min-width: 0 }
@@ -90,7 +88,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--attivo); ou
 .lbl.q { background: rgba(14, 14, 16, .88); border-color: rgba(245, 185, 66, .7); color: var(--quota); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums }
 .lbl.done { border-color: rgba(48, 209, 88, .75); color: #8ef0a8 }
 
-@media (min-width:900px) and (orientation:landscape) {
+@media (min-width:900px) {
   #app { display: grid; grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: auto minmax(0, 1fr) auto }
   #head { grid-column: 1/3 } #parts { grid-column: 1/3 }
   #viewport { grid-column: 1; grid-row: 2 }
@@ -108,10 +106,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--attivo); ou
 #mechCk:hover, #mechColor:hover { background: rgba(255, 255, 255, .09) }
 #mechClose { flex: 0 0 auto; width: 44px; height: 44px; border: 0; border-radius: 22px; background: transparent; font-size: 20px; color: var(--secondario) }
 #mechClose:hover { color: var(--testo); background: rgba(255, 255, 255, .06) }
-#mechView { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; touch-action: none; background: #111214 }
+#mechView { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; background: #111214 }
 #mechView canvas { display: block; touch-action: none }
 #mechLabels { position: absolute !important; top: 0; left: 0; pointer-events: none; z-index: 1 }
-#mechChecks { position: absolute; left: 12px; top: 12px; z-index: 2; width: min(440px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto; -webkit-overflow-scrolling: touch; background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); border: 1px solid var(--bordo); border-radius: 12px; padding: 10px 12px; font-size: 12px; line-height: 1.4; box-shadow: var(--ombra) }
+#mechChecks { position: absolute; left: 12px; top: 12px; z-index: 2; width: min(440px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto; -webkit-overflow-scrolling: touch; background: var(--pannello); border: 1px solid var(--bordo); border-radius: 12px; padding: 10px 12px; font-size: 12px; line-height: 1.4; box-shadow: var(--ombra) }
 #mechChecks h3 { margin: 8px 0 4px; font-size: 11px; font-weight: 650; color: var(--secondario); text-transform: uppercase; letter-spacing: .06em }
 #mechChecks h3:first-child { margin-top: 0 }
 .ck { display: flex; gap: 7px; align-items: flex-start; margin: 3px 0 }
@@ -125,9 +123,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--attivo); ou
 #mechBar button { flex: 0 0 auto; min-height: 44px; padding: 0 15px; border-radius: 22px; border: 1px solid var(--bordo-forte); background: rgba(255, 255, 255, .03); font-size: 13.5px; font-weight: 550; white-space: nowrap }
 #mechBar button:hover { background: rgba(255, 255, 255, .08) }
 #mechBar button.on { background: var(--attivo); border-color: var(--attivo); color: var(--su-attivo) }
-#mechPanel { position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; z-index: 3; width: min(460px, calc(100% - 24px)); background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); border: 1px solid var(--bordo); border-radius: 12px; padding: 8px 14px; font-size: 13.5px; box-shadow: var(--ombra) }
+#mechPanel { position: absolute; left: 50%; transform: translateX(-50%); bottom: 12px; z-index: 3; width: min(460px, calc(100% - 24px)); background: var(--pannello); border: 1px solid var(--bordo); border-radius: 12px; padding: 8px 14px; font-size: 13.5px; box-shadow: var(--ombra) }
 .mrow { display: flex; align-items: center; gap: 10px; min-height: 36px; font-variant-numeric: tabular-nums } .mrow input { flex: 1; accent-color: #fff; min-height: 30px } .mrow i { font-style: normal; color: var(--secondario) }
-#mechInfo { position: absolute; right: 12px; top: 12px; z-index: 3; max-width: min(380px, calc(100% - 24px)); background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); border: 1px solid rgba(245, 185, 66, .55); color: var(--testo); border-radius: 12px; padding: 9px 12px; font-size: 13px; line-height: 1.45; box-shadow: var(--ombra) }
+#mechInfo { position: absolute; right: 12px; top: 12px; z-index: 3; max-width: min(380px, calc(100% - 24px)); background: var(--pannello); border: 1px solid rgba(245, 185, 66, .55); color: var(--testo); border-radius: 12px; padding: 9px 12px; font-size: 13px; line-height: 1.45; box-shadow: var(--ombra) }
 #mechInfo b { color: var(--quota) }
 .warnx { font-weight: 650; color: var(--ko) }
 .mtag { font: 550 11px/1.2 var(--font); letter-spacing: -.01em; background: rgba(14, 14, 16, .88); color: #f2f2f3; border: 1px solid rgba(255, 255, 255, .14); border-radius: 7px; padding: 3px 7px; white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, .4) }
@@ -135,23 +133,33 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--attivo); ou
 #mechTags { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden }
 #mechTags .mtag { position: absolute; left: 0; top: 0 }
 #mechLines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2 }
-#mechScale { position: absolute; left: 12px; bottom: 44px; z-index: 3; background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); border: 1px solid var(--bordo); border-radius: 8px; padding: 6px 9px 5px; font: 600 11.5px var(--font); color: var(--testo) }
+#mechScale { position: absolute; left: 12px; bottom: 44px; z-index: 3; background: var(--pannello); border: 1px solid var(--bordo); border-radius: 8px; padding: 6px 9px 5px; font: 600 11.5px var(--font); color: var(--testo) }
 #mechScaleBar { height: 6px; border: 1.5px solid #fff; border-top: 0; margin-bottom: 3px }
 #mechLegend { position: absolute; left: 12px; top: 12px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 24px); pointer-events: none }
-#mechLegend span { display: flex; align-items: center; gap: 6px; background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); border: 1px solid var(--bordo); border-radius: 12px; padding: 4px 9px; font-size: 12px; font-weight: 550 }
+#mechLegend span { display: flex; align-items: center; gap: 6px; background: var(--pannello); border: 1px solid var(--bordo); border-radius: 12px; padding: 4px 9px; font-size: 12px; font-weight: 550 }
 #mechLegend i { width: 11px; height: 11px; border-radius: 3px }
 #mechLegend.off { display: none }
 @media (max-width:520px) { #mechHead .sub { display: none } #mechCk, #mechColor { padding: 0 10px; font-size: 13px } }
 .mlbl.mq { background: rgba(14, 14, 16, .88); border-color: rgba(245, 185, 66, .7); color: var(--quota); font-size: 11.5px; font-weight: 600 }
 .mlbl { font: 550 11px/1.15 var(--font); background: rgba(14, 14, 16, .86); color: #f2f2f3; border: 1px solid rgba(255, 255, 255, .14); border-radius: 6px; padding: 3px 6px; white-space: nowrap; font-variant-numeric: tabular-nums }
 
-/* v2: pannello qualità / fotorealistico / foto 4K */
-#ptStato { position: absolute; left: 12px; bottom: 62px; z-index: 2; font: 550 11.5px var(--font); color: var(--secondario); background: var(--pannello); border: 1px solid var(--bordo); border-radius: 8px; padding: 4px 8px; font-variant-numeric: tabular-nums; pointer-events: none }
-#fotoBar { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; width: min(360px, calc(100% - 32px)); background: var(--pannello); -webkit-backdrop-filter: blur(20px) brightness(.35); backdrop-filter: blur(20px) brightness(.35); border: 1px solid var(--bordo-forte); border-radius: 14px; padding: 16px; box-shadow: var(--ombra); font-size: 13px; color: var(--testo) }
-#fotoBar .bar { margin-top: 10px }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important } }
 
 /* v2: aree di tocco ≥ 44 px sui dispositivi touch */
 .dot { position: relative }
 .dot::after { content: ''; position: absolute; inset: -7px; border-radius: 50% }
+
+/* v3: badge di misura (?perf=1 / ?bench=1) */
+#perfBadge { position: fixed; left: 8px; top: 8px; z-index: 100; pointer-events: none; font: 600 11px/1.3 ui-monospace, monospace; color: #fff; background: rgba(14, 15, 18, .9); border: 1px solid rgba(255, 255, 255, .08); border-radius: 6px; padding: 4px 7px; max-width: calc(100% - 16px) }
+
+.cyc .stato { margin-top: 6px; font-size: 13px; color: var(--secondario); font-variant-numeric: tabular-nums }
+
+/* v3 (punto 10): header compatto con switch Sistema/Meccanismo, un solo Play (#bCycle), dock delle viste in basso */
+#modo { flex: 0 0 auto; display: flex; padding: 3px; gap: 2px; border: 1px solid var(--bordo); border-radius: 22px; background: rgba(255, 255, 255, .03) }
+#modo button { min-height: 38px; min-width: 44px; padding: 0 12px; border: 0; border-radius: 19px; background: transparent; color: var(--secondario); font-size: 13px; font-weight: 550 }
+#modo button.on { background: var(--attivo); color: var(--su-attivo) }
+#modo button { position: relative } #modo button::after { content: ''; position: absolute; inset: -3px 0 }
+.cbtns { display: none }
+#mech #mechHead { min-height: 52px }
+@media (max-width:520px) { #modo button { padding: 0 9px; font-size: 12.5px } #head { gap: 8px; padding-left: 12px } }

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { qualita } from '../motore/qualita.js';
 import { caricaTerna } from '../materiali/generatori.js';
+import { FLAGS } from '../motore/perf.js';
 
 const base = import.meta.env.BASE_URL + 'asset/tex/';
 const TL = new THREE.TextureLoader();
@@ -20,6 +21,7 @@ if (RIDOTTO) VENTO.ampiezza.value = 0;
 function segnaposto(r, g, b, a = 255, srgb = false) { const d = new THREE.DataTexture(new Uint8Array([r, g, b, a]), 1, 1); d.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; d.needsUpdate = true; return d; }
 function materialeFoglie(nome) {
   const m = new THREE.MeshStandardMaterial({ map: segnaposto(90, 130, 60, 255, true), normalMap: segnaposto(128, 128, 255), roughnessMap: segnaposto(200, 200, 200), roughness: .85, metalness: 0, alphaTest: .5, side: THREE.DoubleSide });
+  m.alphaToCoverage = FLAGS.a2c;   // v3 (5.8): bordi delle foglie con MSAA (renderer con antialias: true); niente blending
   m.name = 'foglie-' + nome;
   Promise.all(['c', 'n', 'r'].map(k => TL.loadAsync(`${base}foglie-${nome}-${k}.webp`))).then(([c, n, r]) => {
     c.colorSpace = THREE.SRGBColorSpace; for (const t of [c, n, r]) t.anisotropy = 8;
@@ -157,7 +159,7 @@ export function creaPianta(i, { hMax, rMax, rBordo, hBordo }) {
 export function materialeVaso(F) {
   const terracotta = /terracotta/.test(F.nome);
   const m = terracotta
-    ? new THREE.MeshStandardMaterial({ color: F.colore, roughness: 1, metalness: 0, normalMap: segnaposto(128, 128, 255), roughnessMap: segnaposto(220, 220, 220) })
+    ? new THREE.MeshStandardMaterial({ color: F.colore, roughness: FLAGS.terracotta ? .9 : 1, metalness: 0, normalMap: segnaposto(128, 128, 255), roughnessMap: segnaposto(220, 220, 220) })
     : new THREE.MeshStandardMaterial({ color: F.colore, roughness: .5, metalness: 0 });   // plastica satinata: nessuna mappa
   if (terracotta) caricaTerna('terracotta', '1k').then(T => { for (const [k, t] of [['normalMap', T.n], ['roughnessMap', T.r]]) { const c = t.clone(); c.repeat.set(3, 2); c.needsUpdate = true; m[k] = c; } });
   else m.normalScale = new THREE.Vector2(.3, .3);

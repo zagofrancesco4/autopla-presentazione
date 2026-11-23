@@ -6,7 +6,6 @@ import { CIELO_HDRI } from './cielo-hdri.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { texPavimento, texVerniceGoffrata, caricaTerna } from '../materiali/generatori.js';
 // risoluzione delle texture dei grandi piani (px per metro) per preset
-const PX_M = { Alta: 1024 };
 let _ph = null;
 export function segnaposti() {
   if (_ph) return _ph;
@@ -25,6 +24,9 @@ import { DEV, GENERAL, STEPS } from '../dati/parti.js';
 import { creaPianta, materialeVaso, coloraVaso, lineaStampo, geometriaTerriccio, materialeTerriccio, bagnaTerriccio, sassolini, VENTO } from '../vegetazione/piante.js';
 import { vp, renderer, scene, camera, controls, sun, fill, pipeline } from '../motore/renderer.js';
 import { qualita } from '../motore/qualita.js';
+import { FLAGS } from '../motore/perf.js';
+import { creaOmbraContatto } from './ombraContatto.js';
+import { creaRegia, aggiornaGalleggiante, aggiornaFlusso, REGIA, creaGetto, aggiornaGetto } from './regia.js';
 import { mat, clipMats } from '../materiali/libreria.js';
 import { pickables, compsByKey, labels, label, gFloor, gWall, gRail0, barGeo, gSt, gTank, gPump, gBay, gPsu, gFuse, gBrd, gDrv, gSock, gCab, gTube, gWire, gReel,
   reelSpin, waterMesh, hoseTube, hoseCable, rings, motSpin, idlerSpin, updateHose, invalidaTubo } from '../scene/balcone.js';
@@ -35,7 +37,8 @@ import { renderables, keyOf, S, select, flyTo, current, resize, tweenAttivo, com
    AMBIENTE — balcone, luci, sfondo e inquadrature della presentazione.
    Il gruppo 'ambiente' è in mm (1 unità = 1 mm) e sta nella scena (in cm) con scala 0,1.
    ===================================================================== */
-export const MOBILE = matchMedia('(pointer: coarse)').matches || innerWidth < 768;
+export { MOBILE } from '../motore/qualita.js';
+import { MOBILE } from '../motore/qualita.js';
 export const ambiente = new THREE.Group(); ambiente.name = 'ambiente'; ambiente.scale.setScalar(.1);
 export const AMB = { modo: 0, modoT: 0, segui: false, sguardo: null, vasi: [], foglie: null, muro: [], muroLato: [], prec: new THREE.Vector3() };
 // misure del balcone lette dal pavimento esistente (cm → mm): nessun numero duplicato
@@ -83,9 +86,6 @@ export function unisciMeccanismo(M) {
     o.castShadow = !o.material.transparent && o.geometry.boundingSphere.radius * o.getWorldScale(new THREE.Vector3()).x > 1.5; o.receiveShadow = true; } });
 }
 
-// --- texture procedurali (CanvasTexture) ---
-export function canvas(n, disegna) { const c = document.createElement('canvas'); c.width = c.height = n; disegna(c.getContext('2d'), n); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t; }
-export const rnd = (() => { let s = 7; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();   // pseudo-casuale ripetibile
 // piastrelle 300x300 con fughe da 3 mm: una texture = 4x4 piastrelle (1200 mm)
 // (v2: texPiastrelle() dell'originale tolta: sostituita da texture fotografiche CC0)
 // intonaco chiaro: rumore leggero
@@ -101,9 +101,26 @@ export function miglioraPavimento() {
   const lato = new THREE.MeshStandardMaterial({ color: 0xd6d1c8, roughness: .9, metalness: 0 }); clipMats.push(lato);
   floor.material = [lato, lato, m, lato, lato, lato]; floor.userData.orig = floor.material; floor.receiveShadow = true;
   AMB.piastrella = 50;   // cm: reticolo originale ogni 50 cm (prompt sez. 8)
-  texPavimento(renderer, { lx: (BALCONE.x1 - BALCONE.x0) / 10, lz: (BALCONE.z1 - BALCONE.z0) / 10, piastrella: AMB.piastrella, pxPerM: PX_M[qualita.nome] }).then(T => { applicaMappe(m, T); AMB.pavimentoPronto = true; });
+  AMB.matPavimento = m; generaPavimento();
   const griglia = gFloor.children.find(c => c.isLineSegments); if (griglia) { deregistra(griglia); griglia.removeFromParent(); }
 }
+
+// texture del pavimento generata su RT: anche dopo webglcontextrestored (le RT perdono il contenuto)
+function generaPavimento() {
+  const m = AMB.matPavimento;
+  return texPavimento(renderer, { lx: (BALCONE.x1 - BALCONE.x0) / 10, lz: (BALCONE.z1 - BALCONE.z0) / 10, piastrella: AMB.piastrella, pxPerM: qualita.p.pxM }).then(T => {
+    const vecchie = [m.map, m.normalMap, m.roughnessMap].filter(t => t && t.rt);
+    m.map = T.c; m.normalMap = T.n; m.roughnessMap = T.r; for (const t of [T.c, T.n, T.r]) renderer.initTexture(t);
+    for (const t of vecchie) t.rt.dispose();
+    AMB.pavimentoPronto = true; richiedi(); });
+}
+function generaVernice() {
+  const vg = texVerniceGoffrata(renderer, 512); vg.n.repeat.set(1, 28); vg.r.repeat.set(1, 28);
+  const m = mat.ringhiera, vecchie = [m.normalMap, m.roughnessMap].filter(t => t && t.rt);
+  m.normalMap = vg.n; m.roughnessMap = vg.r; for (const t of vecchie) t.rt.dispose();
+}
+// v3: dopo la perdita del contesto WebGL le texture generate sulla GPU vanno ridisegnate
+export function rigeneraTexture() { generaVernice(); return generaPavimento(); }
 
 // --- soletta del balcone: spessore 150, sbalzo oltre la ringhiera, gocciolatoio sotto il bordo ---
 export function creaSoletta(tex) {
@@ -181,8 +198,7 @@ export function creaMuro(tex) {
 // --- ringhiera: misure esistenti, verniciatura scura metallica, corrimano piatto 40x8, ferri in InstancedMesh ---
 export function miglioraRinghiera() {
   // v2: vernice nel tono originale (#3b4047), dielettrica, finitura leggermente goffrata (mappa generata)
-  const vg = texVerniceGoffrata(renderer, 512); vg.n.repeat.set(1, 28); vg.r.repeat.set(1, 28);
-  Object.assign(mat.ringhiera, { roughness: 1, metalness: 0, normalMap: vg.n, roughnessMap: vg.r, normalScale: new THREE.Vector2(.35, .35) }); mat.ringhiera.color.set(0x3b4047); mat.ringhiera.needsUpdate = true;
+  Object.assign(mat.ringhiera, { roughness: 1, metalness: 0, normalScale: new THREE.Vector2(.35, .35) }); generaVernice(); mat.ringhiera.color.set(0x3b4047); mat.ringhiera.needsUpdate = true;
   const top = gRail0.children.find(o => o.isMesh && o.geometry.parameters && o.geometry.parameters.width === 300 && o.position.y > 100);
   const pb = top.geometry.parameters, yTop = (top.position.y + pb.height / 2) * 10;
   const cor = new THREE.Mesh(new THREE.BoxGeometry(BALCONE.x1 - BALCONE.x0, 8, 40), mat.ringhiera);
@@ -351,13 +367,17 @@ export function luceModo(k) {
 export const INQ = {
   panoramica: { t: V(150, 60, 50), d: V(0, .3, 1), w: 320, h: 200 },
   rotaia: { t: V(105, 58, 18), d: V(.12, .55, 1), w: 180, h: 120 },
-  segui: { d: V(.35, .32, 1), w: 70, h: 62 }
+  segui: { d: V(.35, .32, 1), w: 70, h: 62 },
+  pompa: { t: V(19, 16, 16), d: V(.7, .45, 1), w: 46, h: 40 },     // serbatoio, galleggiante e pompa
+  servo: { d: V(.9, .15, .6), w: 34, h: 40 }                         // braccetto e ugello sul carrello
 };
 export function inquadratura(nome) {
   if (nome === 'dettaglio') { AUTOPLA.open(); return; }
+  if (nome === 'eccentrico') { AUTOPLA.open().then(() => AUTOPLA.eccentrico()); return; }
   if (current !== null && current !== 'ciclo') select(null);
   AMB.segui = nome === 'segui';
   if (AMB.segui) { const c = posCarrello(); flyTo({ t: c, d: INQ.segui.d, w: INQ.segui.w, h: INQ.segui.h }); AMB.prec.copy(c); }
+  else if (nome === 'servo') { const c = posCarrello(); c.y -= 14; flyTo({ t: c, d: INQ.servo.d, w: INQ.servo.w, h: INQ.servo.h }); }
   else flyTo(INQ[nome]);
   document.querySelectorAll('#vistePres [data-q]').forEach(b => b.classList.toggle('on', b.dataset.q === nome));
 }
@@ -374,41 +394,72 @@ export function vincolaCamera() {
 }
 
 // --- etichette della scena principale: stesso metodo anti-sovrapposizione del dettaglio ---
+// v3: nessuna lettura di layout nel rAF. Posizioni dalla proiezione (come CSS2DRenderer), dimensioni delle etichette e
+// rettangoli degli ostacoli in cache, aggiornati da ResizeObserver; array e box riusati (nessuna allocazione per frame).
+const _pe = new THREE.Vector3(), dimEt = new WeakMap(), ostacoli = { vistePres: null, hint: null, bHome: null }, vpDim = { w: 1, h: 1 };
+const roEt = new ResizeObserver(voci => { for (const v of voci) { const el = v.target, w = el.offsetWidth; if (w) dimEt.set(el, { w, h: el.offsetHeight }); } richiedi(); });   // nascosta → 0: si tiene l'ultima misura
+const roOst = new ResizeObserver(() => {
+  vpDim.w = vp.clientWidth; vpDim.h = vp.clientHeight;
+  for (const id in ostacoli) { const e = $(id); ostacoli[id] = e && !e.hidden && e.offsetWidth ? { x: e.offsetLeft, y: e.offsetTop, w: e.offsetWidth, h: e.offsetHeight } : null; }
+});
+let osservati = false;
+const IT = [], OB = [];
 export function disponiEtichetteMain() {
-  const vb = vp.getBoundingClientRect(), M = 4, it = [], ob = [];
+  if (!osservati) { osservati = true; roOst.observe(vp); for (const id in ostacoli) { const e = $(id); if (e) roOst.observe(e); } }
+  const W = vpDim.w, H = vpDim.h, M = 4; let ni = 0, no = 0;
   for (const e of labels) {
-    const el = e.d; if (!el || !e.o.visible || el.style.display === 'none') continue;
+    const el = e.d; if (!el || !e.o.visible) continue;
+    if (!e.oss) { e.oss = true; roEt.observe(el); }
     el.style.visibility = '';
-    const r = el.getBoundingClientRect(); if (!r.width) continue;
-    const box = { x: r.left - vb.left, y: r.top - vb.top, w: r.width, h: r.height };
-    if (e.cat === 'dot') ob.push(box); else it.push(Object.assign(box, { el, x0: box.x, y0: box.y }));
+    const d = dimEt.get(el); if (!d || !d.w) continue;
+    e.o.getWorldPosition(_pe).project(camera); if (_pe.z < -1 || _pe.z > 1) continue;
+    const bx = e.box || (e.box = { el, x: 0, y: 0, w: 0, h: 0, x0: 0, y0: 0 });
+    bx.w = d.w; bx.h = d.h; bx.x = bx.x0 = (_pe.x + 1) / 2 * W - d.w / 2; bx.y = bx.y0 = (1 - _pe.y) / 2 * H - d.h / 2;
+    if (e.cat === 'dot') OB[no++] = bx; else IT[ni++] = bx;
   }
-  for (const id of ['vistePres', 'hint', 'bHome']) { const e = $(id); if (e && !e.hidden) { const r = e.getBoundingClientRect(); if (r.width) ob.push({ x: r.left - vb.left, y: r.top - vb.top, w: r.width, h: r.height }); } }
+  for (const id in ostacoli) { const r = ostacoli[id]; if (r && !$(id).hidden) OB[no++] = r; }
   for (let k = 0; k < 30; k++) {
     let mosso = false;
-    for (let i = 0; i < it.length; i++) {
-      const a = it[i];
-      for (const b of [...it.slice(i + 1), ...ob]) {
+    for (let i = 0; i < ni; i++) {
+      const a = IT[i];
+      for (let j = i + 1; j < ni + no; j++) {
+        const fisso = j >= ni, b = fisso ? OB[j - ni] : IT[j];
         const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + M, oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + M;
-        if (ox <= 0 || oy <= 0) continue; mosso = true; const fisso = ob.includes(b);
+        if (ox <= 0 || oy <= 0) continue; mosso = true;
         if (oy < ox) { const d = (a.y < b.y ? -1 : 1) * oy; if (fisso) a.y += d; else { a.y += d / 2; b.y -= d / 2; } }
         else { const d = (a.x < b.x ? -1 : 1) * ox; if (fisso) a.x += d; else { a.x += d / 2; b.x -= d / 2; } }
       }
-      a.x = Math.max(M, Math.min(vb.width - a.w - M, a.x)); a.y = Math.max(M, Math.min(vb.height - a.h - M, a.y));
+      a.x = Math.max(M, Math.min(W - a.w - M, a.x)); a.y = Math.max(M, Math.min(H - a.h - M, a.y));
     }
     if (!mosso) break;
   }
   // ultima passata: nasconde le etichette che restano sovrapposte o finiscono lontane dal loro oggetto
-  const tenute = [], urta = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 0 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 0;
-  for (const a of it) {
-    if (Math.hypot(a.x - a.x0, a.y - a.y0) > 90 || tenute.some(b => urta(a, b)) || ob.some(b => urta(a, b))) { a.el.style.visibility = 'hidden'; continue; }
-    tenute.push(a);
-    if (a.x !== a.x0 || a.y !== a.y0) a.el.style.transform += ` translate(${(a.x - a.x0).toFixed(1)}px,${(a.y - a.y0).toFixed(1)}px)`;
+  const urta = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 0 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 0;
+  let nt = 0;
+  for (let i = 0; i < ni; i++) {
+    const a = IT[i]; let via = Math.hypot(a.x - a.x0, a.y - a.y0) > 90;
+    for (let j = 0; !via && j < nt; j++) via = urta(a, IT[j]);
+    for (let j = 0; !via && j < no; j++) via = urta(a, OB[j]);
+    if (via) { a.el.style.visibility = 'hidden'; continue; }
+    IT[nt++] = a;
+    if (a.x !== a.x0 || a.y !== a.y0) a.el.style.transform += ` translate3d(${a.x - a.x0}px,${a.y - a.y0}px,0)`;
   }
 }
 
 // --- aggiornamento per fotogramma: luce, vento, carrello da seguire, muri in trasparenza ---
+// ombra di contatto: ricalcolata solo quando la box si ferma (0,25 s dopo l'ultimo spostamento)
+const _pT = new THREE.Vector3(), _aT = new THREE.Vector3();
+let contatto = null, bxPrec = null, fermoDa = 0, daRifare = true;
 export function ambienteFrame(dt) {
+  aggiornaGalleggiante(); aggiornaFlusso(dt, S.watering);
+  { const st = STEPS[Math.max(0, S.step)], M = window.MAINM, attivo = S.watering && !!M && M.root.visible && st && st.pot !== undefined;
+    if (attivo) { if (AMB.ugelloM !== M) { AMB.ugelloM = M; AMB.ugello = M.pivot.getObjectByName('ugello'); } M.root.updateMatrixWorld(); AMB.ugello.localToWorld(_pT.set(0, -CONFIG.ugello.l / 2, 0));
+      const v = AMB.vasi[st.pot]; _aT.set(v.x / 10, (v.h - 28) / 10, v.z / 10); }
+    aggiornaGetto(dt, attivo, _pT, _aT); }
+  if (contatto && window.MAINM) {
+    if (bxPrec !== S.bx || AMB.armPrec !== S.arm) { bxPrec = S.bx; AMB.armPrec = S.arm; fermoDa = 0; daRifare = true; }
+    else if (daRifare && (fermoDa += dt) >= .25) { daRifare = false; contatto.aggiorna(); richiedi(); }
+  }
   // v2: terriccio bagnato (S.ml / ML_VASO del vaso in erogazione), asciugatura lenta (~1 min)
   { const st = STEPS[Math.max(0, S.step)];
     AMB.vasi.forEach((v, i) => { if (!v.terra) return; let w = v.w; if (S.running && st && st.t === 'water' && st.pot === i) w = Math.max(w, S.ml / ML_VASO); else w = Math.max(0, w - dt / 60); if (w !== v.w || !v.wi) { v.w = w; v.wi = true; bagnaTerriccio(v.terra, w); } }); }
@@ -477,6 +528,8 @@ export function initAmbiente() {
   controls.minAzimuthAngle = -.35; controls.maxAzimuthAngle = 1.65;
   $('vistePres').addEventListener('click', e => { const b = e.target.closest('button'); if (b && b.dataset.q) inquadratura(b.dataset.q); });
   document.querySelector('#vistePres [data-q="panoramica"]').classList.add('on');
+  creaRegia(); registra(REGIA.galleggiante); creaGetto(scene);
+  if (FLAGS.contatto) contatto = AMB.contatto = creaOmbraContatto(renderer, scene, () => [window.MAINM.root], { x0: RAIL_X0 - 10, x1: RAIL_X1 + 10, z0: -15, z1: 35 });
   window.AMB_PRONTO = true;
   if (DEV) { window.verificaAmbiente = verificaAmbiente; verificaAmbiente(); }
 }

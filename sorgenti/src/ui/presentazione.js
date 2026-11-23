@@ -4,11 +4,15 @@ import { CSS2DObject } from '../motore/CSS2DRenderer160.js';
 import { $, V, rad, ease, Orologio } from '../util.js';
 import { RAIL_Z, POT_Z, WIRE_Z, HOME, ARM_DEG, ML_VASO, SECTION_X, POTS } from '../dati/config.js';
 import { PARTS, PART, BOXKEYS, TAP_ORDER, EXTRA_TAP, STEPS, GENERAL, pzHtml } from '../dati/parti.js';
-import { vp, renderer, labelRenderer, scene, camera, controls, pipeline, pixelRatio } from '../motore/renderer.js';
+import { vp, renderer, labelRenderer, scene, camera, controls, pipeline, pixelRatio, governa } from '../motore/renderer.js';
 import { clipMats, pompaMat, valvMat } from '../materiali/libreria.js';
 import { pickables, compsByKey, labels, boxG, pivot, parts, dropMesh, drops, potLabels, qTop, qSide, setTank, updateHose, updateDrops, invalidaTubo } from '../scene/balcone.js';
+import { campiona, benchPasso, p95 } from '../motore/perf.js';
+import { rigeneraTexture } from '../ambiente/ambiente.js';
 import { AMB, MOBILE, ambienteFrame, vincolaCamera, disponiEtichetteMain, aggiornaVento } from '../ambiente/ambiente.js';
 
+// prefers-reduced-motion: salti di camera invece dei voli
+const RIDOTTO = matchMedia('(prefers-reduced-motion: reduce)').matches;
 export const tweenAttivo = () => !!tween;
 export function completaTween() { if (tween) { camera.position.copy(tween.tp); controls.target.copy(tween.tt); tween = null; controls.enabled = true; } }
 export const statoInterno = { get explodeT() { return explodeT; }, get tween() { return tween; } };
@@ -75,6 +79,7 @@ export const S = { bx: HOME, arm: 0, running: false, paused: false, step: -1, el
 
 export const CYCLE_HTML = `<div class="cyc">
 <div class="row"><span id="cStep"></span><span id="cMl"></span></div>
+<div class="row stato"><span id="cPompa"></span><span id="cServo"></span></div>
 <div class="bar"><i id="cBar"></i></div>
 <div class="cbtns"><button id="cPause">❚❚ Pausa</button><button id="cRestart">↺ Ricomincia</button></div>
 </div>`;
@@ -85,7 +90,16 @@ export function cycleUI() {
   $('cStep').textContent = S.paused ? `${st.title} (pausa)` : st.title;
   $('cMl').textContent = done ? `${Math.round(S.total)} ml` : (st.t === 'water' ? `${Math.round(S.ml)} / ${ML_VASO} ml` : `${Math.round(S.total)} ml`);
   $('cBar').style.width = ((S.step + 1) / STEPS.length * 100) + '%';
+  statoCiclo(true);
   const bp = $('cPause'); bp.disabled = !S.running; bp.textContent = S.paused ? '▶ Riprendi' : '❚❚ Pausa';
+}
+// pompa ON/OFF con livello del serbatoio e angolo del servo: testo aggiornato solo quando cambia
+let uP = -1, uT = -1, uS = -1;
+export function statoCiclo(forza) {
+  if (current !== 'ciclo') return;
+  const p = S.watering ? 1 : 0, t = Math.round(S.tank * 100), g = Math.round(S.arm);   // confronto numerico: nessuna stringa se non cambia
+  if (!forza && p === uP && t === uT && g === uS) return; uP = p; uT = t; uS = g;
+  $('cPompa').textContent = `${p ? 'Pompa ON' : 'Pompa OFF'} · serbatoio ${(t / 100).toFixed(2).replace('.', ',')} l`; $('cServo').textContent = `Servo ${g}°`;
 }
 export function syncCycleBtn() {
   $('bCycle').textContent = S.running ? (S.paused ? '▶ Riprendi' : '● In corso') : '▶ Ciclo';
@@ -112,6 +126,7 @@ export function updateCycle(dt) {
   if (st.t === 'move') S.bx = S.from + (st.to - S.from) * ease(k);
   else if (st.t === 'down') S.arm = ARM_DEG * ease(k);
   else if (st.t === 'up') S.arm = ARM_DEG * (1 - ease(k));
+  if (st.t === 'down' || st.t === 'up') statoCiclo();
   else if (st.t === 'water') {
     S.watering = k < .98;
     const prev = S.ml; S.ml = ML_VASO * k; S.total += S.ml - prev;
@@ -184,14 +199,17 @@ export function bindCycleButtons() {
   $('cRestart').addEventListener('click', () => { startCycle(); cycleUI(); });
 }
 $('bCycle').addEventListener('click', () => {
-  if (current !== 'ciclo') select('ciclo');
-  if (!S.running) startCycle(); else if (S.paused) S.paused = false;
+  // v3: unico Play: avvia, mette in pausa e riprende (i pulsanti della scheda sono nascosti)
+  const eraCiclo = current === 'ciclo';
+  if (!eraCiclo) select('ciclo');
+  if (!S.running) startCycle(); else if (S.paused) S.paused = false; else if (eraCiclo) S.paused = true;
   syncCycleBtn(); cycleUI();
 });
 $('sheetClose').addEventListener('click', () => {
   if (current === 'ciclo') { resetCycle(); syncCycleBtn(); }
   select(null);
 });
+$('bMecc').addEventListener('click', () => AUTOPLA.open());
 $('bHome').addEventListener('click', () => { if (camGoal) flyTo(camGoal.v, camGoal.followBox); });
 
 /* Pezzi: tocco = evidenzia */
@@ -284,17 +302,29 @@ requestAnimationFrame(frame);
 
 /* Rendering su richiesta: si disegna solo quando cambia qualcosa (camera, ciclo, selezione, esploso, luce, gocce).
    A scena ferma nessun fotogramma: la GPU resta a zero. Il vento delle piante avanza solo nei fotogrammi disegnati. */
-let sporco = true, ultimaFirma = '', ultimaCam = '', camFerma = 0;
+let sporco = true, ultimaFirma = '', camFerma = 0, contestoPerso = false;
 export function richiedi() { sporco = true; }
-const firmaCamera = () => { const e = camera.matrixWorld.elements, p = camera.projectionMatrix.elements; return e.map(v => v.toFixed(3)).join() + p[0].toFixed(4) + p[5].toFixed(4); };
-export function frame() {
+// firma della camera senza allocazioni: confronto con le matrici dell'ultimo fotogramma disegnato
+const camPrec = new Float64Array(18).fill(NaN);
+function camCambiata() {
+  const e = camera.matrixWorld.elements, p = camera.projectionMatrix.elements;
+  for (let i = 0; i < 16; i++) if (Math.abs(e[i] - camPrec[i]) > 5e-4) return true;
+  return Math.abs(p[0] - camPrec[16]) > 5e-5 || Math.abs(p[5] - camPrec[17]) > 5e-5;
+}
+function camSalva() { const e = camera.matrixWorld.elements, p = camera.projectionMatrix.elements; for (let i = 0; i < 16; i++) camPrec[i] = e[i]; camPrec[16] = p[0]; camPrec[17] = p[5]; }
+// pagina nascosta: niente lavoro; al ritorno l'orologio riparte da zero e si ridisegna
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { clock.getDelta(); richiedi(); renderer.shadowMap.needsUpdate = true; } });
+// contesto WebGL perso (telefono sotto pressione di memoria): stop del disegno finché non torna
+renderer.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); contestoPerso = true; });
+renderer.domElement.addEventListener('webglcontextrestored', () => { contestoPerso = false; if (window.AMB_PRONTO) rigeneraTexture(); renderer.shadowMap.needsUpdate = true; richiedi(); });
+export function frame(t = performance.now()) {
   requestAnimationFrame(frame);
-  if (!$('mech').hidden) { clock.getDelta(); return; }   // dettaglio aperto: scena principale in pausa
+  if (!$('mech').hidden || document.hidden || contestoPerso) { clock.getDelta(); return; }   // dettaglio aperto: scena principale in pausa
   const dt = Math.min(clock.getDelta(), .05);
   updateCycle(dt);
   boxG.position.x = S.bx;
   pivot.rotation.x = -rad(S.arm);
-  if (window.MAINM) window.MAINM.update(S.bx, S.arm);
+  if (window.MAINM) { const M = window.MAINM; M.update(S.bx, S.arm); if (M.arco) M.arco.geometry.setDrawRange(0, S.arm > .05 ? Math.max(2, Math.round(S.arm / ARM_DEG * (M.arcoN - 1)) + 1) : 0); }
   updateHose(S.bx);
   if (current === 'braccetto') {
     clipPlanes[0].constant = S.bx + 1; clipPlanes[1].constant = -(S.bx - 18); qSide.position.x = S.bx - 100;
@@ -308,7 +338,7 @@ export function frame() {
   valvMat.emissive.setHex(0x2a7de1); valvMat.emissiveIntensity = glow;
   updateDrops(dt, S.watering);
   if (tween) {
-    tween.t = Math.min(1, tween.t + dt / .9);
+    tween.t = RIDOTTO ? 1 : Math.min(1, tween.t + dt / .9);
     const k = ease(tween.t);
     if (tween.followBox) tween.tt.set(S.bx, 67, 8);
     camera.position.lerpVectors(tween.fp, tween.tp, k);
@@ -316,25 +346,28 @@ export function frame() {
     if (tween.t >= 1) { tween = null; controls.enabled = true; }
   }
   if (window.AMB_PRONTO) ambienteFrame(dt);
+  benchPasso(t, camera, controls, richiedi);
   controls.update();
   if (window.AMB_PRONTO) vincolaCamera();
   camera.updateMatrixWorld();
   const gocce = drops.some(d => d.on), muroOp = AMB.muro && AMB.muro[0] ? AMB.muro[0].userData.op : 0;
   if (fuoco) fuoco.aggiorna(dt);
   const firma = S.bx.toFixed(3) + '|' + S.arm.toFixed(3) + '|' + explodeT.toFixed(4) + '|' + current + '|' + AMB.modo + '|' + muroOp + '|' + (hl ? 1 : 0) + '|' + S.watering + '|' + glow.toFixed(3) + '|' + (fuoco ? fuoco.k.toFixed(3) : 0);
-  const cam = firmaCamera(), camMossa = cam !== ultimaCam;
+  const camMossa = camCambiata();
+  if (camMossa) governa(p95(), t);
   // pixel ratio: ridotto mentre la camera si muove, pieno 0,2 s dopo l'ultimo movimento (con un fotogramma in più)
   if (camMossa) { camFerma = 0; pixelRatio(true); }
   else if (camFerma < .2 && (camFerma += dt) >= .2) { pixelRatio(false); sporco = true; }
   const scenaCambiata = firma !== ultimaFirma;
-  if (!sporco && !camMossa && !scenaCambiata && !gocce) return;
+  if (!sporco && !camMossa && !scenaCambiata && !gocce) { campiona(t, false); return; }
   // ombre: ridisegnate solo quando si muove qualcosa nella scena (non per la camera)
   if (sporco || scenaCambiata || gocce) renderer.shadowMap.needsUpdate = true;
-  sporco = false; ultimaFirma = firma; ultimaCam = cam;
+  sporco = false; ultimaFirma = firma; camSalva();
   if (window.AMB_PRONTO) aggiornaVento();
   if (hl) hl.update();
   refreshLabels();
   pipeline.render();
   labelRenderer.render(scene, camera);
   if (window.AMB_PRONTO) disponiEtichetteMain();
+  campiona(t, true, renderer);
 }

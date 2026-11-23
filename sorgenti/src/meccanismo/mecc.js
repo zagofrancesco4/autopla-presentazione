@@ -43,6 +43,12 @@ export function applyMode(m) {
   if (modoFunzione && u.funz) { m.color.copy(u.funz); m.metalness = Math.min(u.metal, .35); m.roughness = Math.max(u.rough, .4); }
   else { m.color.copy(u.reale); m.metalness = u.metal; m.roughness = u.rough; }
 }
+// v3: materiale proprio di albero e boccola dell'eccentrico (stesso aspetto di acciaio/guide), con emissive nero:
+// l'evidenziazione cambia solo emissiveIntensity (uniform), nessun cambio di programma
+export function matEcc() {
+  const k = 'acciaio|guide|ecc'; if (matCache[k]) return matCache[k];
+  const b = MAT('acciaio', 'guide'), m = b.clone(); m.userData = b.userData; m.emissive = new THREE.Color(0xf5b942); m.emissiveIntensity = 0; applyMode(m); return (matCache[k] = m);
+}
 export function matFiletto() {
   const k = 'zincato|filetto'; if (matCache[k]) return matCache[k];
   const m = MAT('zincato').clone(); m.userData = MAT('zincato').userData; applicaFiletto(m); applyMode(m); return (matCache[k] = m);
@@ -50,7 +56,9 @@ export function matFiletto() {
 export function MAT(kind, func) {
   const k = kind + '|' + (func || '');
   if (matCache[k]) return matCache[k];
-  const r = REALE[kind], m = new THREE.MeshPhysicalMaterial(Object.assign({ side: THREE.DoubleSide, envMapIntensity: .75 }, r));
+  // v3: MeshStandardMaterial (nessuna feature fisica usata: stesso F0 0,04 di Physical con ior 1,5); resta Physical solo il PETG del guscio,
+  // il cui clone nella scena principale riceve il clearcoat (integrazione.js)
+  const r = REALE[kind], m = new (kind === 'petg' ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial)(Object.assign({ side: THREE.DoubleSide, envMapIntensity: .75 }, r));
   m.userData = { reale: new THREE.Color(r.color), funz: func ? new THREE.Color(CONFIG.aspetto.funzioni[func]) : null, metal: r.metalness, rough: r.roughness, tipo: kind };
   applicaTexture(m);   // v2: micro-dettaglio come mappe (spazzolatura, tornitura, strati di stampa, grana)
   applyMode(m); return (matCache[k] = m);
@@ -312,8 +320,8 @@ export function botWheel(G, S, xs) {
   const C = CONFIG, ru = C.ruote, ec = C.eccentrico, Mv = ru.vite, s = C.iso[Mv], sp = ru.supporto, id = 'ruotaInf_' + S, zI = ru.inferiore.z;
   // boccola eccentrica: gambo nel blocchetto, testa esagonale sul lato esterno; il foro M3 è spostato di 'eccentricita'
   const eg = new THREE.Group(); eg.position.set(xs, D.yShank, 0); eg.rotation.z = D.phi; G.add(eg);
-  const gb = cyl(eg, ec.gamboD / 2, ec.gamboL, v3(0, 0, (D.zBlk0 + D.zBlk1) / 2), AXZ, MAT('acciaio', 'guide'), id + '_eccGambo', id, { allow: ['box_bloccoInf'] });
-  const hx = cyl(eg, ec.esagono / SQ3, ec.lunghezza, v3(0, 0, D.zBlk0 - ec.lunghezza / 2), AXZ, MAT('acciaio', 'guide'), id + '_ecc', id, {}, 6);
+  const gb = cyl(eg, ec.gamboD / 2, ec.gamboL, v3(0, 0, (D.zBlk0 + D.zBlk1) / 2), AXZ, matEcc(), id + '_eccGambo', id, { allow: ['box_bloccoInf'] });
+  const hx = cyl(eg, ec.esagono / SQ3, ec.lunghezza, v3(0, 0, D.zBlk0 - ec.lunghezza / 2), AXZ, matEcc(), id + '_ecc', id, {}, 6);
   const wg = new THREE.Group(); wg.position.set(0, -D.ecc, zI); wg.rotation.x = Math.PI / 2; eg.add(wg);
   const [wh, s1] = wheelCore(wg, id, -1, false);
   const aD1 = D.zBlk1 - zI, aE = D.zBlk0 - ec.lunghezza - zI;    // coordinate assiali (asse = +Z) relative alla ruota
@@ -324,7 +332,14 @@ export function botWheel(G, S, xs) {
   boxMM(G, xs - sp.sezione / 2, xs + sp.sezione / 2, D.yBotIn, D.yShank + sp.sezione / 2, D.zBlk0, D.zBlk1, MAT('petgPieno'), 'box_bloccoInf_' + S, 'box', { r: C.smussi.petg });
   ex([wh], v3(0, 14, 0)); ex([s1], v3(0, 20, 0)); ex(sc, v3(0, 34, 0)); ex([di], v3(0, 7, 0)); ex([r2], v3(0, -16, 0)); ex([nut], v3(0, -22, 0));
   ex([gb, hx], v3(0, 0, -14));
-  D.eccGroups.push({ eg, wg });
+  // traiettoria del centro ruota (cerchio, 65 punti) e corsa verticale (segmento): preallocati, nascosti; disegnati in scala ×esagerazione
+  const R = ec.esagerazione * D.ecc, yc = D.yShank - R, nC = 65, pc = new Float32Array(nC * 3);
+  for (let i = 0; i < nC; i++) { const a = i / (nC - 1) * 2 * Math.PI; pc[i * 3] = xs + R * Math.sin(a); pc[i * 3 + 1] = yc - R * Math.cos(a); pc[i * 3 + 2] = zI; }
+  const gC = new THREE.BufferGeometry(); gC.setAttribute('position', new THREE.BufferAttribute(pc, 3)); gC.setDrawRange(0, 0);
+  const cerchio = new THREE.Line(gC, QMAT); cerchio.renderOrder = 999; cerchio.visible = false; cerchio.raycast = () => { }; G.add(cerchio);
+  const gS = new THREE.BufferGeometry(); gS.setAttribute('position', new THREE.BufferAttribute(new Float32Array([xs + R * 1.6, yc - R, zI, xs + R * 1.6, yc + R, zI]), 3));
+  const corsa = new THREE.Line(gS, QMAT); corsa.renderOrder = 999; corsa.visible = false; corsa.raycast = () => { }; G.add(corsa);
+  D.eccGroups.push({ eg, wg, cerchio, corsa, nC });
 }
 
 /* ---------- parte fissa: tubo, cremagliera, staffe, ringhiera ---------- */
@@ -920,9 +935,12 @@ export function applyEsploso(k) { for (const e of EXP) e.n.position.copy(e.b).ad
 export function stopEcc(snap) { ST.eccT = 0; if (snap) { ST.ecc = 0; applyEcc(0); } btn('eccentrico', false); info(null); setEtichette(ST.etichette); }
 export function applyEcc(k) {
   const ec = CONFIG.eccentrico, x = ec.esagerazione, phi = Math.PI * ease(k);
-  for (const { eg, wg } of D.eccGroups) {
+  matEcc().emissiveIntensity = k > 0 ? .35 * Math.min(1, k * 4) : 0;
+  for (const { eg, wg, cerchio, corsa, nC } of D.eccGroups) {
+    cerchio.visible = corsa.visible = k > 0;
     if (k <= 0) { eg.rotation.z = D.phi; eg.position.y = D.yShank; wg.position.y = -D.ecc; continue; }
+    cerchio.geometry.setDrawRange(0, Math.max(2, Math.round(ease(k) / 2 * (nC - 1)) + 1));
     eg.rotation.z = phi; eg.position.y = D.yShank - x * D.ecc; wg.position.y = -x * D.ecc;
   }
-  if (k > 0) info(`<b>Eccentrico</b> · boccola ruotata di ${fmt(phi / D2R, 0)}° · la ruota sale di <b>${fmt(D.ecc * (1 - Math.cos(phi)), 2)} mm</b> (corsa totale ${fmt(2 * D.ecc, 2)} mm)<br><span class="warnx">Spostamento disegnato esagerato ×${ec.esagerazione}</span>`);
+  if (k > 0) info(`<b>Eccentrico</b> · boccola ruotata di ${fmt(phi / D2R, 0)}° · la ruota sale di <b>${fmt(D.ecc * (1 - Math.cos(phi)), 2)} mm</b> (corsa totale ${fmt(2 * D.ecc, 2)} mm)<br><span class="warnx">Spostamento disegnato esagerato ×${ec.esagerazione}</span><br>Evidenziati boccola e albero; in ambra la traiettoria del centro ruota e la corsa verticale.`);
 }

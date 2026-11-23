@@ -262,14 +262,43 @@ export function hosePts(bx, zr, z, gz, kind) {
   return { pts: out, xs };
 }
 let lastHoseX = null;
+// v3 (punto 8): tubo e cavo con geometria preallocata (stessa struttura di TubeGeometry: 121 anelli × 7 vertici, UV e indici fissi);
+// a ogni spostamento si riscrivono solo posizioni e normali. Curve riusate; telaio a trasporto parallelo (nessuna torsione).
+const SEG_T = 120, RAD_T = 6, curvaTubo = new THREE.CatmullRomCurve3([], false, 'centripetal'), curvaCavo = new THREE.CatmullRomCurve3([], false, 'centripetal');
+const _c = new THREE.Vector3(), _c2 = new THREE.Vector3(), _tg = new THREE.Vector3(), _nn = new THREE.Vector3(), _bb = new THREE.Vector3(), _tmp = new THREE.Vector3();
+function geometriaTubo() {
+  const n = (SEG_T + 1) * (RAD_T + 1), uv = new Float32Array(n * 2), idx = [];
+  for (let i = 0; i <= SEG_T; i++) for (let j = 0; j <= RAD_T; j++) { const k = i * (RAD_T + 1) + j; uv[k * 2] = i / SEG_T; uv[k * 2 + 1] = j / RAD_T; }
+  for (let i = 1; i <= SEG_T; i++) for (let j = 1; j <= RAD_T; j++) { const a = (RAD_T + 1) * (i - 1) + (j - 1), b = (RAD_T + 1) * i + (j - 1), c = (RAD_T + 1) * i + j, d = (RAD_T + 1) * (i - 1) + j; idx.push(a, b, d, b, c, d); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); g.setIndex(idx); return g;
+}
+function tuboSulPosto(mesh, curva, pts, r) {
+  if (!mesh.geometry.attributes.position) { mesh.geometry.dispose(); mesh.geometry = geometriaTubo(); }
+  curva.points = pts; curva.updateArcLengths();
+  const P = mesh.geometry.attributes.position.array, Nn = mesh.geometry.attributes.normal.array;
+  for (let i = 0; i <= SEG_T; i++) {
+    const u = i / SEG_T; curva.getPointAt(u, _c); curva.getPointAt(Math.min(1, u + 1e-3), _c2); curva.getPointAt(Math.max(0, u - 1e-3), _tmp);
+    _tg.subVectors(_c2, _tmp).normalize();
+    if (i === 0) { _nn.set(0, 1, 0); if (Math.abs(_tg.y) > .9) _nn.set(1, 0, 0); }
+    _nn.addScaledVector(_tg, -_nn.dot(_tg)).normalize(); _bb.crossVectors(_tg, _nn);   // trasporto parallelo
+    for (let j = 0; j <= RAD_T; j++) {
+      const v = j / RAD_T * Math.PI * 2, sn = Math.sin(v), cs = -Math.cos(v), k = (i * (RAD_T + 1) + j) * 3;
+      const nx = cs * _nn.x + sn * _bb.x, ny = cs * _nn.y + sn * _bb.y, nz = cs * _nn.z + sn * _bb.z;
+      Nn[k] = nx; Nn[k + 1] = ny; Nn[k + 2] = nz; P[k] = _c.x + r * nx; P[k + 1] = _c.y + r * ny; P[k + 2] = _c.z + r * nz;
+    }
+  }
+  mesh.geometry.attributes.position.needsUpdate = true; mesh.geometry.attributes.normal.needsUpdate = true;
+  mesh.geometry.computeBoundingSphere();
+}
 export function invalidaTubo() { lastHoseX = null; }
 export function updateHose(bx) {
   if (lastHoseX !== null && Math.abs(bx - lastHoseX) < .02) return;
   lastHoseX = bx;
   const a = hosePts(bx, 7, 3.4, 4.4, 'tubo'), b = hosePts(bx, 9.4, 4.6, 5.9, 'cavo');
-  hoseTube.geometry.dispose(); hoseCable.geometry.dispose();
-  hoseTube.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(a.pts, false, 'centripetal'), 120, .4, 6, false);
-  hoseCable.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(b.pts, false, 'centripetal'), 120, .3, 6, false);
+  tuboSulPosto(hoseTube, curvaTubo, a.pts, .4); tuboSulPosto(hoseCable, curvaCavo, b.pts, .3);
   for (let i = 0; i < N_RINGS; i++) rings[i].position.x = a.xs[i + 1];
   const out = bx - HOME;
   setWound(7.6 - out / 130 * 1.6);

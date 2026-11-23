@@ -23,3 +23,23 @@ CONFIG, costanti, PARTS, STEPS, testi, geometria, controlli del gemello, ciclo, 
 - ciclo: "Ciclo completato · 750 ml";
 - scena ferma: 0 fotogrammi e 0 draw call in 3 s (l'originale disegnava di continuo);
 - piante: 0 vertici fuori dal vaso su 9852 (`__verifica.piante()` in console).
+
+# Autopla v3 — notte 23→24/11/2026 (vedi NOTTE.md)
+
+## Cosa è cambiato
+- Misura: `?perf=1` (badge frame time/p95/calls/triangoli/memoria/DPR), `?bench=1` (orbita 10 s, p50/p95/max/% > 16,7 ms in console e `window.__bench`).
+- Tier mobile (pointer coarse o < 768 px): DPR max 1,5 con governor (p95 > 20 ms in moto → giù), ombre 1024, pavimento generato a 512 px/m, gres sorgente 1k.
+- Pausa a pagina nascosta, gestione webglcontextlost/restored, firma camera senza allocazioni.
+- Etichette (presentazione e gemello) senza letture di layout nel rAF; `#mechLines` un solo path.
+- Niente backdrop-filter; pannelli rgba(14,15,18,.90); viewport zoomabile; touch-action:none solo sul canvas.
+- Arco del servo (setDrawRange) + riga Pompa/Servo nella scheda Ciclo; reduced-motion senza voli.
+- Clearcoat 0,4 sul guscio, terracotta 0,9, alphaToCoverage sulle foglie (flag `?clearcoat=0`, `?terracotta=0`, `?a2c=0`).
+
+## Numeri prima/dopo
+- Draw call: [da misurare con ?perf=1 — nessun browser disponibile stanotte].
+- Peso asset scaricati su mobile: gres 2k (1 066 786 B) → gres 1k (457 902 B) = −0,61 MB; desktop invariato.
+- Memoria GPU pavimento su mobile (stima): 3072×1024 → 1536×512 per 3 mappe (≈ −37 MB).
+- JS principale: 757,54 kB → 761,92 kB (+perf.js). p95: da inserire dal telefono.
+
+## Verifiche
+Non eseguite stanotte (servono browser/Chrome headless, non disponibili; Playwright vietato): vedi comandi in testa a NOTTE.md.

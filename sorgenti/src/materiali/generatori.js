@@ -85,7 +85,10 @@ export async function texPavimento(renderer, { lx = 300, lz = 100, piastrella = 
       vec3 n = normalize(vec3(nrm.xy, 1.));
       gl_FragColor = uscita < .5 ? vec4(col, 1.) : uscita < 1.5 ? vec4(n * .5 + .5, 1.) : vec4(rgh, rgh, rgh, 1.);
     }`;
-  return disegna(renderer, w, h, frag, { tc: { value: T.c }, tn: { value: T.n }, tr: { value: T.r }, lx: { value: lx }, lz: { value: lz }, piastrella: { value: piastrella }, fuga: { value: fuga } });
+  const out = disegna(renderer, w, h, frag, { tc: { value: T.c }, tn: { value: T.n }, tr: { value: T.r }, lx: { value: lx }, lz: { value: lz }, piastrella: { value: piastrella }, fuga: { value: fuga } });
+  // v3: la foto sorgente serve solo qui: liberata dalla GPU (e dalla cache) dopo la generazione
+  for (const t of [T.c, T.n, T.r]) t.dispose(); cache.delete('gres' + risTex());
+  return out;
 }
 
 // Vernice goffrata (buccia d'arancia) per la ringhiera: normale e ruvidità, ripetibili

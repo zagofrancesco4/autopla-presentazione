@@ -19,28 +19,43 @@ import { VISTA, D2R, SQ2, v3, fmt, QMAT, ST, D, root, car, RUL, LAB, EXP, modoFu
   setModo, setTrasp, setEtichette, btn, panel, info, animUI, toggleAnim, setX, toggleEsploso, applyEsploso, stopEcc, applyEcc,
   syncInstances, dropLabels, dispose, armDeg } from '../meccanismo/mecc.js';
 
-const _p = v3();
-export function scr(vec, parent, W, H) { _p.copy(vec).applyMatrix4(parent.matrixWorld).project(V.cam); return { x: (_p.x + 1) / 2 * W, y: (1 - _p.y) / 2 * H, ok: _p.z < 1 && _p.z > -1 }; }
+const _p = v3(), _sc = { x: 0, y: 0, ok: false }, _sl = { x: 0, y: 0, ok: false };
+// v3: nessuna lettura di layout nel rAF. Dimensione della vista da resizeView, ostacoli e dimensioni delle etichette
+// in cache con ResizeObserver; un solo <path> creato una volta; etichette spostate con translate3d.
+export function scr(vec, parent, W, H, o = { x: 0, y: 0, ok: false }) { _p.copy(vec).applyMatrix4(parent.matrixWorld).project(V.cam); o.x = (_p.x + 1) / 2 * W; o.y = (1 - _p.y) / 2 * H; o.ok = _p.z < 1 && _p.z > -1; return o; }
+const OST = {}, dimT = new WeakMap(), vis = [], ok = [];
+let roT = null, pathEl = null;
+function preparaCache() {
+  if (roT) return;
+  roT = new ResizeObserver(voci => { for (const v of voci) { const w = v.target.offsetWidth; if (w) dimT.set(v.target, { w, h: v.target.offsetHeight }); } /* display:none → 0: si tiene l'ultima misura */ if (V) V.sporco = true; });
+  const roO = new ResizeObserver(() => { for (const id of ['mechPanel', 'mechInfo', 'mechLegend', 'mechChecks', 'mechScale']) { const e = $(id); OST[id] = e && !e.hidden && e.offsetWidth ? { x0: e.offsetLeft - 4, y0: e.offsetTop - 4, x1: e.offsetLeft + e.offsetWidth + 4, y1: e.offsetTop + e.offsetHeight + 4 } : null; } if (V) V.sporco = true; });
+  for (const id of ['mechView', 'mechPanel', 'mechInfo', 'mechLegend', 'mechChecks', 'mechScale']) roO.observe($(id));
+  const svg = $('mechLines'); svg.innerHTML = ''; pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  pathEl.setAttribute('stroke', '#d8d8dc'); pathEl.setAttribute('stroke-opacity', '.7'); pathEl.setAttribute('stroke-width', '1'); pathEl.setAttribute('fill', 'none'); svg.appendChild(pathEl);
+}
+const _wa = v3(), _rul = [v3(-55, -2, 0), v3(55, -2, 0), v3(-55, 18, 0), v3(55, 18, 0)], _obR = { x0: 0, y0: 0, x1: 0, y1: 0 }, _r = { x0: 0, y0: 0, x1: 0, y1: 0 };
 export function layoutTags() {
+  preparaCache();
   const host = $('mechTags'), svg = $('mechLines');
   const on = LAB && ST.etichette && !(ST.ecc > 0 || ST.eccT > 0);
   host.style.display = svg.style.display = on ? '' : 'none'; if (!on) return;
-  const view_ = $('mechView'), vb = view_.getBoundingClientRect(), W = vb.width, H = vb.height, few = W < 700, M = 4;
-  const obst = [];
-  for (const id of ['mechPanel', 'mechInfo', 'mechLegend', 'mechChecks', 'mechScale']) { const e = $(id); if (e && !e.hidden && e.offsetParent && e.style.visibility !== 'hidden') { const r = e.getBoundingClientRect(); obst.push({ x0: r.left - vb.left - M, y0: r.top - vb.top - M, x1: r.right - vb.left + M, y1: r.bottom - vb.top + M }); } }
+  const W = V.W, H = V.H, few = W < 700, M = 4;
+  let nOb = 0; const obst = layoutTags.ob || (layoutTags.ob = []);
+  for (const id in OST) { const o = OST[id], e = $(id); if (o && !e.hidden && e.style.visibility !== 'hidden') obst[nOb++] = o; }
   if (RUL && RUL.visible) {               // il righello resta libero
-    RUL.updateMatrixWorld(true); const pr = [v3(-55, -2, 0), v3(55, -2, 0), v3(-55, 18, 0), v3(55, 18, 0)].map(q => scr(q, RUL, W, H));
-    obst.push({ x0: Math.min(...pr.map(q => q.x)) - M, y0: Math.min(...pr.map(q => q.y)) - M, x1: Math.max(...pr.map(q => q.x)) + M, y1: Math.max(...pr.map(q => q.y)) + M });
+    RUL.updateMatrixWorld(true); _obR.x0 = _obR.y0 = Infinity; _obR.x1 = _obR.y1 = -Infinity;
+    for (const q of _rul) { scr(q, RUL, W, H, _sc); _obR.x0 = Math.min(_obR.x0, _sc.x - M); _obR.y0 = Math.min(_obR.y0, _sc.y - M); _obR.x1 = Math.max(_obR.x1, _sc.x + M); _obR.y1 = Math.max(_obR.y1, _sc.y + M); }
+    obst[nOb++] = _obR;
   }
-  view_.querySelectorAll('.mlbl').forEach(e => { const r = e.getBoundingClientRect(); if (r.width) obst.push({ x0: r.left - vb.left - M, y0: r.top - vb.top - M, x1: r.right - vb.left + M, y1: r.bottom - vb.top + M }); });
-  const vis = [];
+  vis.length = 0;
   for (const it of LAB.items) {
-    const wa = it.a.clone().applyMatrix4(it.parent.matrixWorld);
-    const A = scr(it.a, it.parent, W, H), Lp = scr(it.l, it.parent, W, H);
-    it.show = A.ok && Lp.ok && (!few || it.prim) && !(ST.sez && wa.x < ST.xCut - .5) && A.x > -20 && A.x < W + 20 && A.y > -20 && A.y < H + 20;
-    it.el.style.display = it.show ? '' : 'none'; if (!it.show) continue;
-    if (!it.w) { it.w = it.el.offsetWidth; it.h = it.el.offsetHeight; }
-    it.ax = A.x; it.ay = A.y; it.x = Lp.x - it.w / 2; it.y = Lp.y - it.h / 2; vis.push(it);
+    if (!it.oss) { it.oss = true; roT.observe(it.el); }
+    _wa.copy(it.a).applyMatrix4(it.parent.matrixWorld);
+    const A = scr(it.a, it.parent, W, H, _sc), Lp = scr(it.l, it.parent, W, H, _sl), d = dimT.get(it.el);
+    it.show = A.ok && Lp.ok && (!few || it.prim) && !(ST.sez && _wa.x < ST.xCut - .5) && A.x > -20 && A.x < W + 20 && A.y > -20 && A.y < H + 20;
+    if (!d || !d.w) { it.el.style.display = it.show ? '' : 'none'; it.el.style.opacity = '0'; continue; }   // prima misura: invisibile
+    if (!it.show) { it.el.style.display = 'none'; continue; }
+    it.w = d.w; it.h = d.h; it.ax = A.x; it.ay = A.y; it.x = Lp.x - it.w / 2; it.y = Lp.y - it.h / 2; vis.push(it);
   }
   for (let k = 0; k < 40; k++) {
     let moved = false;
@@ -50,8 +65,8 @@ export function layoutTags() {
         const b = vis[j], ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) + M, oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) + M;
         if (ox > 0 && oy > 0) { moved = true; if (oy < ox) { const d = (a.y < b.y ? -1 : 1) * oy / 2; a.y += d; b.y -= d; } else { const d = (a.x < b.x ? -1 : 1) * ox / 2; a.x += d; b.x -= d; } }
       }
-      for (const o of obst) {
-        const ox = Math.min(a.x + a.w, o.x1) - Math.max(a.x, o.x0), oy = Math.min(a.y + a.h, o.y1) - Math.max(a.y, o.y0);
+      for (let j = 0; j < nOb; j++) {
+        const o = obst[j], ox = Math.min(a.x + a.w, o.x1) - Math.max(a.x, o.x0), oy = Math.min(a.y + a.h, o.y1) - Math.max(a.y, o.y0);
         if (ox > 0 && oy > 0) { moved = true; if (oy < ox) a.y += (a.y + a.h / 2 < (o.y0 + o.y1) / 2 ? -oy : oy); else a.x += (a.x + a.w / 2 < (o.x0 + o.x1) / 2 ? -ox : ox); }
       }
       a.x = Math.max(M, Math.min(W - a.w - M, a.x)); a.y = Math.max(M, Math.min(H - a.h - M, a.y));
@@ -59,31 +74,32 @@ export function layoutTags() {
     if (!moved) break;
   }
   // ultima passata: tiene prima le etichette principali; quelle che restano sovrapposte vengono nascoste
-  const ok = [], hit = (a, b) => Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 0 && Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > 0;
-  for (const it of [...vis].sort((a, b) => b.prim - a.prim)) {
-    const r = { x0: it.x - 1, y0: it.y - 1, x1: it.x + it.w + 1, y1: it.y + it.h + 1 };
-    if (ok.some(o => hit(o, r)) || obst.some(o => hit(o, r))) { it.el.style.display = 'none'; continue; }
-    ok.push(r); it.ok = true;
-  }
-  vis.splice(0, vis.length, ...vis.filter(it => it.ok)); vis.forEach(it => { it.ok = false; });
+  const hit = (a, b) => Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 0 && Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > 0;
+  vis.sort((a, b) => b.prim - a.prim || b.prec - a.prec); ok.length = 0;   // a parità, chi era visibile resta (niente scambi frame per frame)
+  for (const it of vis) it.prec = 0;
   let d = '';
   for (const it of vis) {
-    it.el.style.transform = `translate(${it.x.toFixed(1)}px,${it.y.toFixed(1)}px)`;
-    const cx = Math.max(it.x, Math.min(it.ax, it.x + it.w)), cy = Math.max(it.y, Math.min(it.ay, it.y + it.h));
-    d += `M${it.ax.toFixed(1)} ${it.ay.toFixed(1)}L${cx.toFixed(1)} ${cy.toFixed(1)}`;
+    const r = it.r || (it.r = { x0: 0, y0: 0, x1: 0, y1: 0 }); r.x0 = it.x - 1; r.y0 = it.y - 1; r.x1 = it.x + it.w + 1; r.y1 = it.y + it.h + 1;
+    let via = false; for (const o of ok) if (hit(o, r)) { via = true; break; } for (let j = 0; !via && j < nOb; j++) via = hit(obst[j], r);
+    if (via) { it.el.style.display = 'none'; continue; }
+    ok.push(r); it.prec = 1;
+    it.el.style.display = ''; it.el.style.opacity = '';
+    it.el.style.transform = `translate3d(${it.x}px,${it.y}px,0)`;
+    const cx = Math.max(it.x, Math.min(it.ax, it.x + it.w)), cy = Math.max(it.y, Math.min(it.ay, it.y + it.h)), ax = it.ax.toFixed(2), ay = it.ay.toFixed(2);
+    d += `M${ax} ${ay}L${cx.toFixed(2)} ${cy.toFixed(2)}M${(it.ax - 3).toFixed(2)} ${ay}a3 3 0 1 0 6 0a3 3 0 1 0 -6 0`;
   }
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.innerHTML = `<path d="${d}" stroke="#d8d8dc" stroke-opacity=".55" stroke-width="1" fill="none"/>` + vis.map(it => `<circle cx="${it.ax.toFixed(1)}" cy="${it.ay.toFixed(1)}" r="3" fill="#0b0b0c" stroke="#fff" stroke-width="1.5"/>`).join('');
+  pathEl.setAttribute('d', d);
 }
 
 // scala in sezione: barra in basso a sinistra, lunga un valore tondo in mm sul piano di taglio
 export function layoutScale() {
   const sc = $('mechScale'); if (!ST.sez) { sc.hidden = true; return; }
-  const vb = $('mechView').getBoundingClientRect(), Pm = v3(ST.xCut, (D.yTopOut + D.yBotOut) / 2, D.zLeftOut);
+  const vb = { width: V.W, height: V.H }, Pm = v3(ST.xCut, (D.yTopOut + D.yBotOut) / 2, D.zLeftOut);
   const a = Pm.clone().project(V.cam), b = Pm.clone().add(v3(0, 0, 10)).project(V.cam), c = Pm.clone().add(v3(0, 10, 0)).project(V.cam);
   const pxmm = Math.max(Math.hypot((b.x - a.x) * vb.width / 2, (b.y - a.y) * vb.height / 2), Math.hypot((c.x - a.x) * vb.width / 2, (c.y - a.y) * vb.height / 2)) / 10;
   const L = [5, 10, 20, 50, 100, 200].find(l => l * pxmm >= 70) || 200;
-  const pn = $('mechPanel'); sc.style.bottom = (!pn.hidden ? pn.offsetHeight + 20 : 10) + 'px';
+  const pn = $('mechPanel'); sc.style.bottom = (!pn.hidden && OST.mechPanel ? OST.mechPanel.y1 - OST.mechPanel.y0 - 8 + 20 : 10) + 'px';
   sc.hidden = false; $('mechScaleBar').style.width = (L * pxmm).toFixed(1) + 'px'; $('mechScaleT').textContent = `${L} mm`;
 }
 
@@ -106,7 +122,7 @@ export function initView() {
   scene.environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
   scene.environmentIntensity = .55;
   const sun = new THREE.DirectionalLight(0xfff6ec, 2.6); sun.castShadow = true;   // key light (unica con ombre)
-  const om = 2048;
+  const om = qualita.p.ombra;
   sun.shadow.mapSize.set(om, om); sun.shadow.bias = -.0003; sun.shadow.normalBias = .3; sun.shadow.radius = 4;
   Object.assign(sun.shadow.camera, { left: -300, right: 300, top: 300, bottom: -300, near: 10, far: 3000 });
   scene.add(sun); scene.add(sun.target);
@@ -150,7 +166,7 @@ export function initView() {
 }
 export function resizeView() {
   if (!V) return; const host = $('mechView'), W = Math.max(1, host.clientWidth), H = Math.max(1, host.clientHeight);
-  V.renderer.setSize(W, H); V.lr.setSize(W, H); V.cam.aspect = W / H; V.cam.updateProjectionMatrix();
+  V.W = W; V.H = H; V.renderer.setSize(W, H); V.lr.setSize(W, H); V.cam.aspect = W / H; V.cam.updateProjectionMatrix();
   QLINE.resolution.set(W, H); V.sporco = true;
 }
 // quota: linea con estensioni e valore in mm
@@ -229,6 +245,7 @@ export function toggleEcc() {
   if (ST.anim) toggleAnim();
   if (ST.espT) { ST.espT = 0; btn('esploso', false); }
   ST.eccT = ST.eccT > 0 ? 0 : 1; btn('eccentrico', ST.eccT > 0);
+  if (ST.eccT && !ST.trasp) setTrasp(true);   // involucro semi-trasparente (variante precompilata in open())
   const xw = ST.X + D.xSt[1];
   ST.sez = true; ST.xCut = xw - 3; setClip(ST.xCut); btn('sezione', true);
   panel(null);
@@ -306,6 +323,7 @@ export async function precompilaGemello() {
 let domPronto = false;
 export function open() {
   $('mech').hidden = false;
+  $('bMecc').classList.add('on'); $('bSistema').classList.remove('on');
   if (!domPronto) {
     domPronto = true;
     $('mechChecks').hidden = true; $('mechCk').hidden = !DEV;
@@ -314,9 +332,11 @@ export function open() {
   }
   resizeView(); view('iso', true); V.sporco = true;
   if (!running) { running = true; V.clock.getDelta(); requestAnimationFrame(loop); }
+  if (!V.precompilato) { V.precompilato = true; precompilaGemello().then(() => { setTrasp(ST.trasp); if (!ST.eccT) view(V.vista || "iso", true); V.sporco = true; }).catch(() => { }); }
 }
 export function close() {
   $('mech').hidden = true; running = false;
+  $('bMecc').classList.remove('on'); $('bSistema').classList.add('on');
   if (location.hash === '#meccanismo') history.replaceState(null, '', location.pathname + location.search);
 }
 $('mechClose').addEventListener('click', close);
@@ -330,5 +350,3 @@ $('mechBar').addEventListener('click', e => {
     etichette: () => setEtichette(!ST.etichette), trasparenza: () => setTrasp(!ST.trasp), reset })[b.dataset.a]?.();
 });
 
-// v2: misure per scripts/budget.mjs
-export function misure() { if (!V) return null; const r = V.renderer, inf = r.info; inf.autoReset = false; inf.reset(); r.render(V.scene, V.cam); const out = { calls: inf.render.calls, tri: inf.render.triangles }; inf.autoReset = true; return out; }

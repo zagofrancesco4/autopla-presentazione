@@ -13,6 +13,9 @@ import { integra } from './meccanismo/integrazione.js';
 import * as AMBI from './ambiente/ambiente.js';
 import { qualita, TEST } from './motore/qualita.js';
 import { Fuoco } from './focus/selezione.js';
+import { FLAGS } from './motore/perf.js';
+import { aggiungiRim } from './materiali/rim.js';
+import { renderables } from './ui/presentazione.js';
 
 // qualità grafica del gemello (CONFIG.render: solo segmenti, spigolo, evolvente)
 Object.assign(CONFIG.render, qualita.p.render);
@@ -41,8 +44,10 @@ addEventListener('hashchange', () => { if (location.hash === '#meccanismo') AUTO
 integra();
 AMBI.initAmbiente();
 // luce di contorno della parte selezionata: presente dal primo fotogramma (intensità 0)
-const luceContorno = new THREE.DirectionalLight(0xffffff, 0); scene.add(luceContorno, luceContorno.target);
-UI.impostaFuoco(new Fuoco(renderer, scene, camera, luceContorno));
+// v3: con il rim fresnel (default, ?rim=0 per tornare alla luce) la luce di contorno non entra nella scena
+const luceContorno = new THREE.DirectionalLight(0xffffff, 0); if (!FLAGS.rim) scene.add(luceContorno, luceContorno.target);
+if (FLAGS.rim) for (const o of renderables) if (o.isMesh) { const ms = Array.isArray(o.userData.orig) ? o.userData.orig : [o.userData.orig]; ms.forEach(aggiungiRim); }
+UI.impostaFuoco(new Fuoco(renderer, scene, camera, luceContorno, FLAGS.rim));
 UI.richiedi();
 
 window.__tempi = window.__tempi || {};
