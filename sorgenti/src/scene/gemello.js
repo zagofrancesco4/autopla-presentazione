@@ -10,6 +10,8 @@ import { DEV } from '../dati/parti.js';
 import { precompila } from '../motore/precompilazione.js';
 import { Pipeline } from '../motore/pipeline.js';
 import { qualita } from '../motore/qualita.js';
+import { pizzicoCamera } from '../ui/gesti.js';
+import { area, areaLibera, fitDistanza, offsetArea, rimanda } from '../ui/inquadra.js';
 import { CIELO_HDRI } from '../ambiente/cielo-hdri.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
@@ -163,10 +165,33 @@ export function initView() {
     fascia.geometry.dispose(); fascia.material.dispose(); tx.dispose(); V.sporco = true;
   }).catch(() => { });
   new ResizeObserver(resizeView).observe(host);
+  pizzicoCamera(host, renderer.domElement, () => ({ camera: V.cam, controls: V.ctl, richiedi: () => { V.sporco = true; } }));
+  new ResizeObserver(refitRimandato).observe(renderer.domElement);
+  if (window.visualViewport) visualViewport.addEventListener('resize', refitRimandato);
 }
+/* Inquadratura adattiva (fase 3, punto 9): come nella presentazione. Ogni vista registra il suo riquadro (V.fitRif);
+   a ogni resize del canvas o del visualViewport (debounce 150 ms) la distanza si ricalcola nell'area libera dagli overlay
+   e lo zoom dell'utente resta come fattore rispetto alla distanza di fit. */
+const AREA_G = area(), OVERLAY_G = ['mechPanel', 'mechInfo', 'mechLegend', 'mechChecks'];
+function misuraAreaG() { areaLibera($('mechView'), OVERLAY_G, AREA_G); offsetArea(V.cam, AREA_G); }
+function fitRif(w, h, k) { misuraAreaG(); V.fitRif = { w, h, k }; return (V.fitDist = fitDistanza(V.cam, w, h, AREA_G, k)); }
+export function fitView() {
+  if (!V || !V.fitRif || $('mech').hidden) return;
+  const vecchio = V.fitDist, { w, h, k } = V.fitRif, nuovo = fitRif(w, h, k), r = nuovo / vecchio;
+  V.sporco = true;
+  if (Math.abs(r - 1) < .01) return;
+  const t = V.ctl.target, tw = V.tween;
+  if (tw) { tw.tp.sub(tw.tt).multiplyScalar(r).add(tw.tt); }        // volo in corso: arriva alla distanza nuova
+  else V.tween = { t: 0, fp: V.cam.position.clone(), ft: t.clone(), tp: V.cam.position.clone().sub(t).multiplyScalar(r).add(t), tt: t.clone() };   // fattore di zoom conservato
+  const d = (tw ? tw.tp.distanceTo(tw.tt) : V.tween.tp.distanceTo(t));
+  V.cam.near = d / 50; V.cam.far = d * 20; V.cam.updateProjectionMatrix();
+}
+const refitRimandato = rimanda(fitView, 150);
 export function resizeView() {
   if (!V) return; const host = $('mechView'), W = Math.max(1, host.clientWidth), H = Math.max(1, host.clientHeight);
-  V.W = W; V.H = H; V.renderer.setSize(W, H); V.lr.setSize(W, H); V.cam.aspect = W / H; V.cam.updateProjectionMatrix();
+  if (W === V.W && H === V.H) return;   // setSize solo se la dimensione cambia davvero
+  V.W = W; V.H = H; V.renderer.setSize(W, H); V.lr.setSize(W, H); V.cam.aspect = W / H;
+  AREA_G.W = W; AREA_G.H = H; offsetArea(V.cam, AREA_G); V.cam.updateProjectionMatrix();
   QLINE.resolution.set(W, H); V.sporco = true;
 }
 // quota: linea con estensioni e valore in mm
@@ -208,6 +233,7 @@ export function camTo(tgt, dir, dist, inst) {
   if (V.griglia) V.griglia.material.uniforms.centro.value.copy(tgt);
 }
 // v2: il piano di taglio è sempre presente (nessun nuovo programma shader); senza sezione sta all'infinito
+const ECC_RIQ = 2 * 105 * Math.tan(15 * Math.PI / 180);   // riquadro dell'inquadratura dell'eccentrico (FOV 30°)
 const pianoTaglio = new THREE.Plane(v3(1, 0, 0), 1e9);
 export function setClip(x) { V.renderer.clippingPlanes = [pianoTaglio]; pianoTaglio.constant = x == null ? 1e9 : -x; if (V.studio) V.studio.visible = x == null; }   // in sezione lo studio sparirebbe tagliato
 export function view(name = 'iso', inst) {
@@ -221,7 +247,8 @@ export function view(name = 'iso', inst) {
   const [dir, xCut] = set, cut = name.startsWith('sezione');
   if (cut) { ST.sez = true; ST.xCut = xCut; } else if (!ST.sez) setClip(null);
   if (ST.sez) { setClip(ST.xCut); syncSezioneUI(); }
-  const fit = Math.min(1, V.cam.aspect), dist = span / 2 / Math.tan(V.cam.fov / 2 * D2R) / fit * (name === 'iso' ? 1.5 : 1.05);
+  // fase 3: FOV verticale e orizzontale nell'area libera (prima: span/2/tan(fov/2)/min(1, aspect) × 1,5 iso / 1,05)
+  const dist = fitRif(span, span, name === 'iso' ? 1.5 : 1.1);
   camTo(v3(cut ? xCut : Xc, cy, cz), dir, dist, inst);
   buildDims(ST.sez, ST.xCut);
   document.querySelectorAll('#mechBar [data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === name));
@@ -249,7 +276,8 @@ export function toggleEcc() {
   const xw = ST.X + D.xSt[1];
   ST.sez = true; ST.xCut = xw - 3; setClip(ST.xCut); btn('sezione', true);
   panel(null);
-  camTo(v3(xw, D.yShank - 4, (CONFIG.ruote.inferiore.z + D.zBlk0) / 2), v3(-1, .25, -.45), 105);
+  // riquadro di 56,3 mm: a canvas orizzontale senza overlay dà i 105 mm di prima; in verticale si allontana quanto serve
+  camTo(v3(xw, D.yShank - 4, (CONFIG.ruote.inferiore.z + D.zBlk0) / 2), v3(-1, .25, -.45), fitRif(ECC_RIQ, ECC_RIQ, 1));
   buildDims(true, ST.xCut);
 }
 

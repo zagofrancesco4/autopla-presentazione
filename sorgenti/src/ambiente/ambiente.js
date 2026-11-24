@@ -396,14 +396,75 @@ export function vincolaCamera() {
 // --- etichette della scena principale: stesso metodo anti-sovrapposizione del dettaglio ---
 // v3: nessuna lettura di layout nel rAF. Posizioni dalla proiezione (come CSS2DRenderer), dimensioni delle etichette e
 // rettangoli degli ostacoli in cache, aggiornati da ResizeObserver; array e box riusati (nessuna allocazione per frame).
-const _pe = new THREE.Vector3(), dimEt = new WeakMap(), ostacoli = { vistePres: null, hint: null, bHome: null }, vpDim = { w: 1, h: 1 };
+const _pe = new THREE.Vector3(), dimEt = new WeakMap(), ostacoli = { vistePres: null, hint: null, bHome: null, head: null, parts: null, sheet: null }, vpDim = { w: 1, h: 1 };
 const roEt = new ResizeObserver(voci => { for (const v of voci) { const el = v.target, w = el.offsetWidth; if (w) dimEt.set(el, { w, h: el.offsetHeight }); } richiedi(); });   // nascosta → 0: si tiene l'ultima misura
+// fase 3: rettangoli relativi al canvas (getBoundingClientRect, solo nel callback, mai nel rAF) e ritagliati sul canvas:
+// in orizzontale header, barra parti e scheda stanno sopra il canvas, in verticale fuori (→ nessun ostacolo)
 const roOst = new ResizeObserver(() => {
   vpDim.w = vp.clientWidth; vpDim.h = vp.clientHeight;
-  for (const id in ostacoli) { const e = $(id); ostacoli[id] = e && !e.hidden && e.offsetWidth ? { x: e.offsetLeft, y: e.offsetTop, w: e.offsetWidth, h: e.offsetHeight } : null; }
+  const r = vp.getBoundingClientRect();
+  for (const id in ostacoli) {
+    const e = $(id); let o = null;
+    if (e && !e.hidden && e.offsetWidth) {
+      const b = e.getBoundingClientRect(), x0 = Math.max(b.left, r.left), y0 = Math.max(b.top, r.top), x1 = Math.min(b.right, r.right), y1 = Math.min(b.bottom, r.bottom);
+      if (x1 > x0 && y1 > y0) o = { x: x0 - r.left, y: y0 - r.top, w: x1 - x0, h: y1 - y0 };
+    }
+    ostacoli[id] = o;
+  }
 });
 let osservati = false;
 const IT = [], OB = [];
+// --- badge numerati (fase 3, punto 11): due badge con i centri a meno di SOGLIA_DOT px vanno a raggiera attorno al loro
+// baricentro (vicini sul cerchio a PASSO_DOT px), con una linea guida dal punto vero al badge. I gruppi che dopo la
+// raggiera si toccano ancora vengono uniti e ridisposti (al più 4 passate). Array preallocati, nessuna allocazione.
+// Soglia 32 px e non 28: i badge hanno 30 px di diametro, a 28 px si sovrapporrebbero ancora di 2 px.
+const SOGLIA_DOT = 32, PASSO_DOT = 36, MAXD = 32;
+const par = new Int16Array(MAXD), ordD = new Int16Array(MAXD), angD = new Float32Array(MAXD), cxD = new Float32Array(MAXD), cyD = new Float32Array(MAXD);
+let lineeDot = null, dPrec = '';
+const radice = i => { while (par[i] !== i) i = par[i] = par[par[i]]; return i; };
+const ux = i => OB[i].x0 + OB[i].w / 2, uy = i => OB[i].y0 + OB[i].h / 2;   // centro originale del badge i
+function raggiera(nd) {
+  for (let i = 0; i < nd; i++) par[i] = i;
+  for (let i = 0; i < nd; i++) for (let j = i + 1; j < nd; j++) if (Math.hypot(ux(i) - ux(j), uy(i) - uy(j)) < SOGLIA_DOT) par[radice(i)] = radice(j);
+  for (let passata = 0; passata < 4; passata++) {
+    for (let i = 0; i < nd; i++) { OB[i].x = OB[i].x0; OB[i].y = OB[i].y0; }
+    for (let r = 0; r < nd; r++) {
+      if (radice(r) !== r) continue;
+      let k = 0, sx = 0, sy = 0;
+      for (let i = 0; i < nd; i++) if (radice(i) === r) { ordD[k++] = i; sx += ux(i); sy += uy(i); }
+      if (k < 2) continue;
+      const cx = sx / k, cy = sy / k, R = Math.max(PASSO_DOT * .6, PASSO_DOT / (2 * Math.sin(Math.PI / k)));
+      // ordine attorno al baricentro (si conserva la disposizione relativa); inserimento su pochi elementi
+      for (let a = 0; a < k; a++) { const i = ordD[a]; angD[i] = Math.atan2(uy(i) - cy, ux(i) - cx) + (Math.abs(ux(i) - cx) + Math.abs(uy(i) - cy) < .5 ? a : 0); }
+      for (let a = 1; a < k; a++) { const v = ordD[a]; let b = a - 1; while (b >= 0 && angD[ordD[b]] > angD[v]) { ordD[b + 1] = ordD[b]; b--; } ordD[b + 1] = v; }
+      const a0 = angD[ordD[0]];
+      for (let a = 0; a < k; a++) { const i = ordD[a], an = a0 + a * Math.PI * 2 / k; OB[i].x = cx + Math.cos(an) * R - OB[i].w / 2; OB[i].y = cy + Math.sin(an) * R - OB[i].h / 2; }
+    }
+    // gruppi (o badge singoli) che dopo la raggiera si toccano ancora: uniti, si ridispone
+    let unito = false;
+    for (let i = 0; i < nd; i++) { cxD[i] = OB[i].x + OB[i].w / 2; cyD[i] = OB[i].y + OB[i].h / 2; }
+    for (let i = 0; i < nd; i++) for (let j = i + 1; j < nd; j++) if (radice(i) !== radice(j) && Math.hypot(cxD[i] - cxD[j], cyD[i] - cyD[j]) < SOGLIA_DOT) { par[radice(i)] = radice(j); unito = true; }
+    if (!unito) break;
+  }
+  // spostamento dei badge e linee guida (un solo <path>, attributo aggiornato solo se cambia)
+  let d = '';
+  for (let i = 0; i < nd; i++) {
+    const b = OB[i], dx = b.x - b.x0, dy = b.y - b.y0; if (Math.abs(dx) < .5 && Math.abs(dy) < .5) continue;
+    b.el.style.transform += ` translate3d(${dx}px,${dy}px,0)`;
+    const x0 = b.x0 + b.w / 2, y0 = b.y0 + b.h / 2, x1 = b.x + b.w / 2, y1 = b.y + b.h / 2, L = Math.hypot(x1 - x0, y1 - y0), t = Math.max(0, (L - b.w / 2) / L);
+    d += `M${x0.toFixed(1)} ${y0.toFixed(1)}L${(x0 + (x1 - x0) * t).toFixed(1)} ${(y0 + (y1 - y0) * t).toFixed(1)}M${(x0 - 2).toFixed(1)} ${y0.toFixed(1)}a2 2 0 1 0 4 0a2 2 0 1 0 -4 0`;
+  }
+  lineeGuida(d);
+}
+function lineeGuida(d) {
+  if (d === dPrec) return; dPrec = d;
+  if (!lineeDot) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.id = 'dotLines'; svg.setAttribute('aria-hidden', 'true');
+    lineeDot = document.createElementNS('http://www.w3.org/2000/svg', 'path'); svg.appendChild(lineeDot);
+    vp.insertBefore(svg, $('labels'));
+  }
+  lineeDot.setAttribute('d', d);
+}
 export function disponiEtichetteMain() {
   if (!osservati) { osservati = true; roOst.observe(vp); for (const id in ostacoli) { const e = $(id); if (e) roOst.observe(e); } }
   const W = vpDim.w, H = vpDim.h, M = 4; let ni = 0, no = 0;
@@ -417,6 +478,7 @@ export function disponiEtichetteMain() {
     bx.w = d.w; bx.h = d.h; bx.x = bx.x0 = (_pe.x + 1) / 2 * W - d.w / 2; bx.y = bx.y0 = (1 - _pe.y) / 2 * H - d.h / 2;
     if (e.cat === 'dot') OB[no++] = bx; else IT[ni++] = bx;
   }
+  if (no > 1) raggiera(Math.min(no, MAXD)); else lineeGuida('');
   for (const id in ostacoli) { const r = ostacoli[id]; if (r && !$(id).hidden) OB[no++] = r; }
   for (let k = 0; k < 30; k++) {
     let mosso = false;
@@ -515,7 +577,7 @@ export function initAmbiente() {
   const fisse = o => o === reelSpin || o === waterMesh || o === hoseTube || o === hoseCable || rings.includes(o) || o.userData.container || o === motSpin || o === idlerSpin;
   for (const g of [gWall, gSt, gBay, gPsu, gFuse, gBrd, gDrv, gSock, gCab, gTube, gWire, gTank, gPump, gReel, compsByKey.fc0, compsByKey.fc1, compsByKey.stazione]) if (g) unisci(g, fisse, false);
   window.AMB_UNISCI = unisciMeccanismo; unisciMeccanismo(window.MAINM);
-  if (MOBILE) INQ.panoramica.w = 230;               // sul telefono (schermo verticale) la panoramica è più stretta
+  if (MOBILE) INQ.panoramica.wVert = 230;           // sul telefono in verticale la panoramica è più stretta (in orizzontale: w intera)
   Object.assign(GENERAL, INQ.panoramica);
   // etichette dell'ambiente (vista generale; sul telefono solo le principali)
   const S0 = AMB.vasi[1];

@@ -4,11 +4,14 @@ import { CSS2DObject } from '../motore/CSS2DRenderer160.js';
 import { $, V, rad, ease, Orologio } from '../util.js';
 import { RAIL_Z, POT_Z, WIRE_Z, HOME, ARM_DEG, ML_VASO, SECTION_X, POTS } from '../dati/config.js';
 import { PARTS, PART, BOXKEYS, TAP_ORDER, EXTRA_TAP, STEPS, GENERAL, pzHtml } from '../dati/parti.js';
-import { vp, renderer, labelRenderer, scene, camera, controls, pipeline, pixelRatio, governa } from '../motore/renderer.js';
+import { vp, renderer, labelRenderer, scene, camera, controls, pipeline, pixelRatio, governa, PR_MOTO, DPR_FORZATO } from '../motore/renderer.js';
 import { clipMats, pompaMat, valvMat } from '../materiali/libreria.js';
 import { pickables, compsByKey, labels, boxG, pivot, parts, dropMesh, drops, potLabels, qTop, qSide, setTank, updateHose, updateDrops, invalidaTubo } from '../scene/balcone.js';
-import { campiona, benchPasso, p95 } from '../motore/perf.js';
+import { campiona, benchPasso, DIAG, DIAG_H, RIPOSO3, rigaRiposo } from '../motore/perf.js';
 import { rigeneraTexture } from '../ambiente/ambiente.js';
+import { pizzicoCamera } from './gesti.js';
+import { area, areaLibera, fitDistanza, offsetArea, rimanda } from './inquadra.js';
+import { VISTA_PERF } from '../motore/perf.js';
 import { AMB, MOBILE, ambienteFrame, vincolaCamera, disponiEtichetteMain, aggiornaVento } from '../ambiente/ambiente.js';
 
 // prefers-reduced-motion: salti di camera invece dei voli
@@ -183,17 +186,41 @@ export function select(id) {
   if (wasCycle && id !== 'ciclo') cycleUI();
 }
 export function flyTo(v, followBox) {
+  misuraArea();
   const target = followBox ? V(S.bx, 67, 8) : v.t.clone();
-  const pos = target.clone().add(v.d.clone().normalize().multiplyScalar(fitDist(v.w, v.h)));
+  fitAttuale = fitVista(v);
+  const pos = target.clone().add(v.d.clone().normalize().multiplyScalar(fitAttuale));
   camGoal = { v, followBox };
   tween = { t: 0, fp: camera.position.clone(), ft: controls.target.clone(), tp: pos, tt: target, followBox };
   controls.enabled = false;
 }
-export function fitDist(w, h) {
-  const W = Math.max(1, vp.clientWidth), H = Math.max(1, vp.clientHeight);
-  const tv = Math.tan(rad(camera.fov / 2));
-  return Math.max((h / 2) / tv, (w / 2) / (tv * W / H)) * 1.1;
+/* Inquadratura adattiva (fase 3, punto 9): distanza dal riquadro della vista (w × h) con FOV verticale e orizzontale,
+   margine 10 %, nell'area del canvas non coperta dagli overlay; ricalcolata su resize del canvas e del visualViewport
+   (debounce 150 ms) conservando lo zoom dell'utente come FATTORE rispetto alla distanza di fit. */
+const AREA = area(), OVERLAY = ['hint', 'vistePres', 'bHome', 'head', 'parts', 'sheet'];
+let fitAttuale = 0;
+function misuraArea() { areaLibera(vp, OVERLAY, AREA); offsetArea(camera, AREA); }
+// riquadro della vista: in verticale le viste possono avere una larghezza propria (wVert: panoramica stretta sul telefono)
+const fitVista = v => fitDistanza(camera, v.wVert && camera.aspect < 1 ? v.wVert : v.w, v.h, AREA);
+export function fitDist(w, h) { return fitDistanza(camera, w, h, AREA); }
+export const fattoreZoom = () => fitAttuale ? camera.position.distanceTo(controls.target) / fitAttuale : 1;
+VISTA_PERF.fattore = fattoreZoom;
+export function fitView() {
+  if (!camGoal) return;
+  misuraArea();
+  if (tween && !tween.refit) { flyTo(camGoal.v, camGoal.followBox); return; }   // volo in corso: rifatto verso la nuova inquadratura
+  if (tween) completaTween();                                                     // ricalcolo precedente non finito: chiuso
+  const nuovo = fitVista(camGoal.v), f = fattoreZoom();
+  fitAttuale = nuovo; richiedi();
+  const t = controls.target, dist = camera.position.distanceTo(t), d = nuovo * f;
+  if (Math.abs(d / dist - 1) < .01) return;
+  // stessa direzione e stesso target (rotazione dell'utente conservata), distanza = fit nuovo × fattore di zoom
+  const tp = camera.position.clone().sub(t).multiplyScalar(d / dist).add(t);
+  tween = { t: 0, fp: camera.position.clone(), ft: t.clone(), tp, tt: t.clone(), followBox: false, refit: true };
+  controls.enabled = false;
 }
+const fitRimandato = rimanda(fitView, 150);
+if (window.visualViewport) visualViewport.addEventListener('resize', fitRimandato);
 export function bindCycleButtons() {
   $('cPause').addEventListener('click', () => { if (!S.running) return; S.paused = !S.paused; syncCycleBtn(); cycleUI(); });
   $('cRestart').addEventListener('click', () => { startCycle(); cycleUI(); });
@@ -252,6 +279,8 @@ export function pick(cx, cy) {
   select(target);
   if (compsByKey[key]) highlight(key);
 }
+// pizzico che parte su badge, etichette o pulsanti sopra il 3D: zoom della camera, non della pagina (fase 3, punto 8)
+pizzicoCamera(vp, renderer.domElement, () => ({ camera, controls, richiedi }));
 renderer.domElement.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY, t: performance.now() }; });
 renderer.domElement.addEventListener('pointerup', e => {
   if (!down) return;
@@ -278,13 +307,18 @@ export function refreshLabels() {
 }
 
 /* Dimensioni */
+let resW = 0, resH = 0;
 export function resize() {
   const W = Math.max(1, vp.clientWidth), H = Math.max(1, vp.clientHeight);
+  if (W === resW && H === resH) return;   // setSize solo se la dimensione cambia davvero (ResizeObserver + window resize)
+  resW = W; resH = H;
   renderer.setSize(W, H); labelRenderer.setSize(W, H);
-  camera.aspect = W / H; camera.updateProjectionMatrix();
+  camera.aspect = W / H; AREA.W = W; AREA.H = H; offsetArea(camera, AREA);   // offset con la nuova dimensione (area esatta dopo il fit)
+  camera.updateProjectionMatrix();
   richiedi();
 }
 new ResizeObserver(resize).observe(vp);
+new ResizeObserver(fitRimandato).observe(renderer.domElement);
 addEventListener('resize', resize);
 
 
@@ -302,7 +336,7 @@ requestAnimationFrame(frame);
 
 /* Rendering su richiesta: si disegna solo quando cambia qualcosa (camera, ciclo, selezione, esploso, luce, gocce).
    A scena ferma nessun fotogramma: la GPU resta a zero. Il vento delle piante avanza solo nei fotogrammi disegnati. */
-let sporco = true, ultimaFirma = '', camFerma = 0, contestoPerso = false;
+let sporco = true, ultimaFirma = '', camFerma = 0, inMoto = false, contestoPerso = false;
 export function richiedi() { sporco = true; }
 // firma della camera senza allocazioni: confronto con le matrici dell'ultimo fotogramma disegnato
 const camPrec = new Float64Array(18).fill(NaN);
@@ -317,8 +351,35 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { cl
 // contesto WebGL perso (telefono sotto pressione di memoria): stop del disegno finché non torna
 renderer.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); contestoPerso = true; });
 renderer.domElement.addEventListener('webglcontextrestored', () => { contestoPerso = false; if (window.AMB_PRONTO) rigeneraTexture(); renderer.shadowMap.needsUpdate = true; richiedi(); });
+/* ?riposo3=1 (prova): quando camera e animazioni sono ferme da 0,4 s si disegna UN frame a min(devicePixelRatio, 3)
+   (senza ricalcolare le ombre); al primo pointerdown (capture su window: prima che OrbitControls elabori il movimento)
+   il DPR torna a quello di moto e il frame successivo viene ridisegnato. Se un'animazione riparte senza tocco, il DPR torna
+   indietro prima di disegnare. Misure in ?perf=1 (riga 3): frame a riposo e frame di ritorno (setPixelRatio, CPU di render,
+   intervallo rAF successivo = durata vista del frame, totale dal pointerdown). */
+const PR_R3 = Math.min(window.devicePixelRatio || 1, 3);
+let aRiposo3 = false, ridisegna = false, tUltimoDisegno = 0;
+const MR = { attesa: 0, t0: 0, set: 0, render: 0, n: 0, maxTot: 0, riposoSet: 0, riposoRender: 0, riposoRaf: 0, rit: null };
+function tornaDaRiposo3() {
+  if (!aRiposo3) return;
+  const a = performance.now();
+  aRiposo3 = false; renderer.setPixelRatio(DPR_FORZATO.v || PR_MOTO); ridisegna = true;
+  MR.t0 = a; MR.set = performance.now() - a; MR.attesa = 2;   // 2: frame di ritorno da disegnare
+}
+if (RIPOSO3) addEventListener('pointerdown', tornaDaRiposo3, true);
+function scriviRiposo() {
+  const f = v => v.toFixed(1);
+  rigaRiposo(`riposo3: frame a DPR ${PR_R3} → set ${f(MR.riposoSet)} · render ${f(MR.riposoRender)} · rAF ${f(MR.riposoRaf)} ms` +
+    (MR.n ? ` | ritorno a ${PR_MOTO}: set ${f(MR.set)} · render ${f(MR.render)} · rAF ${f(MR.rit)} · totale ${f(MR.tot)} ms (n ${MR.n}, max tot ${f(MR.maxTot)})` : ' | ritorno: tocca lo schermo'));
+}
+
+let tRaf = 0;
 export function frame(t = performance.now()) {
   requestAnimationFrame(frame);
+  const dRaf = tRaf ? t - tRaf : 0; tRaf = t;   // intervallo rAF (per il governor)
+  // riposo3: il rAF dopo un frame misurato dà la durata vista di quel frame
+  if (MR.attesa === 1) { MR.attesa = 0; MR.riposoRaf = dRaf; scriviRiposo(); }
+  else if (MR.attesa === 3) { MR.attesa = 0; MR.rit = dRaf; MR.tot = performance.now() - MR.t0; MR.n++; MR.maxTot = Math.max(MR.maxTot, MR.tot); scriviRiposo(); }
+  const f0 = DIAG ? performance.now() : 0;
   if (!$('mech').hidden || document.hidden || contestoPerso) { clock.getDelta(); return; }   // dettaglio aperto: scena principale in pausa
   const dt = Math.min(clock.getDelta(), .05);
   updateCycle(dt);
@@ -347,6 +408,7 @@ export function frame(t = performance.now()) {
   }
   if (window.AMB_PRONTO) ambienteFrame(dt);
   benchPasso(t, camera, controls, richiedi);
+  if (DIAG_H.passo) DIAG_H.passo(t);
   controls.update();
   if (window.AMB_PRONTO) vincolaCamera();
   camera.updateMatrixWorld();
@@ -354,20 +416,37 @@ export function frame(t = performance.now()) {
   if (fuoco) fuoco.aggiorna(dt);
   const firma = S.bx.toFixed(3) + '|' + S.arm.toFixed(3) + '|' + explodeT.toFixed(4) + '|' + current + '|' + AMB.modo + '|' + muroOp + '|' + (hl ? 1 : 0) + '|' + S.watering + '|' + glow.toFixed(3) + '|' + (fuoco ? fuoco.k.toFixed(3) : 0);
   const camMossa = camCambiata();
-  if (camMossa) governa(p95(), t);
-  // pixel ratio: ridotto mentre la camera si muove, pieno 0,2 s dopo l'ultimo movimento (con un fotogramma in più)
-  if (camMossa) { camFerma = 0; pixelRatio(true); }
-  else if (camFerma < .2 && (camFerma += dt) >= .2) { pixelRatio(false); sporco = true; }
+  // pixel ratio: ridotto mentre la camera si muove, pieno 0,2 s dopo l'ultimo movimento (con un fotogramma in più).
+  // Solo ai passaggi: su mobile i due valori coincidono → nessun setPixelRatio, nessun frame né ombra in più alla fine del gesto.
+  if (camMossa) { camFerma = 0; if (!inMoto) { inMoto = true; pixelRatio(true); } }
+  else if (inMoto && (camFerma += dt) >= .2) { inMoto = false; if (pixelRatio(false)) sporco = true; }
   const scenaCambiata = firma !== ultimaFirma;
-  if (!sporco && !camMossa && !scenaCambiata && !gocce) { campiona(t, false); return; }
+  const disegna = sporco || camMossa || scenaCambiata || gocce || ridisegna;
+  let riposoOra = false;
+  if (RIPOSO3 && !DPR_FORZATO.v) {
+    if (disegna && aRiposo3) tornaDaRiposo3();   // animazione ripartita senza tocco: prima al DPR di moto, poi si disegna
+    else if (!disegna && !aRiposo3 && PR_R3 > renderer.getPixelRatio() && t - tUltimoDisegno >= 400) {
+      const a = performance.now(); renderer.setPixelRatio(PR_R3); MR.riposoSet = performance.now() - a;
+      aRiposo3 = riposoOra = true;
+    }
+  }
+  if (!disegna && !riposoOra) { campiona(t, false); return; }
+  ridisegna = false;
   // ombre: ridisegnate solo quando si muove qualcosa nella scena (non per la camera)
   if (sporco || scenaCambiata || gocce) renderer.shadowMap.needsUpdate = true;
   sporco = false; ultimaFirma = firma; camSalva();
   if (window.AMB_PRONTO) aggiornaVento();
   if (hl) hl.update();
   refreshLabels();
+  const r0 = DIAG || RIPOSO3 ? performance.now() : 0;
   pipeline.render();
+  const r1 = DIAG || RIPOSO3 ? performance.now() : 0;
+  if (riposoOra) { MR.riposoRender = r1 - r0; MR.attesa = 1; }
+  else if (MR.attesa === 2) { MR.render = r1 - r0; MR.attesa = 3; }
+  if (!riposoOra) tUltimoDisegno = t;
   labelRenderer.render(scene, camera);
   if (window.AMB_PRONTO) disponiEtichetteMain();
   campiona(t, true, renderer);
+  if (!riposoOra) governa(dRaf, t);
+  if (DIAG_H.fine) DIAG_H.fine(t, r1 - r0, performance.now() - f0);
 }

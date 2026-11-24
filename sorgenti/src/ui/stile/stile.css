@@ -163,3 +163,51 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--attivo); ou
 .cbtns { display: none }
 #mech #mechHead { min-height: 52px }
 @media (max-width:520px) { #modo button { padding: 0 9px; font-size: 12.5px } #head { gap: 8px; padding-left: 12px } }
+
+/* fase 3 (punto 8): pizzico sull'area 3D e sui suoi overlay = zoom della camera, mai della pagina.
+   none sugli overlay (badge, etichette, pulsanti, intestazioni); le barre scorrevoli tengono solo lo scorrimento (pan-x / pan-y,
+   niente pinch-zoom); i pannelli di testo restano zoomabili (manipulation: pizzico sì, doppio tocco no).
+   #viewport/#mechView stessi non hanno none: in WebKit l'intersezione con l'antenato bloccherebbe lo scorrimento del dock. */
+#viewport > *, #labels *, #mechView > *, #mechTags *, #mechLabels *, #head, #head *, #mechHead, #mechHead * { touch-action: none }
+#vistePres, #vistePres *, #parts, #parts *, #mechBar, #mechBar * { touch-action: pan-x }
+#mechChecks, #mechChecks * { touch-action: pan-y }
+#sheet, #sheet * { touch-action: manipulation }
+
+/* fase 3 (punto 10): safe area (viewport-fit=cover nel meta): barre in basso sopra l'indicatore home */
+#parts { padding-bottom: calc(10px + env(safe-area-inset-bottom)) }
+#mechBar { padding-bottom: calc(8px + env(safe-area-inset-bottom)) }
+#app, #mech { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right) }
+
+/* fase 3 (punto 10): telefono in orizzontale. Canvas a tutta altezza (100dvh); header = riga sottile sovrapposta al canvas;
+   hint nascosto; dock delle viste e barra delle parti sulla stessa riga in basso (due tratti scorrevoli, ⟲ a destra);
+   scheda come pannello a destra; centro libero. Safe area per la Dynamic Island. Target ≥ 44 px invariati. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #app, #mech { display: block; height: 100dvh; padding: 0 }
+  #viewport, #mechView { position: absolute; inset: 0 }
+  #head, #mechHead { position: absolute; z-index: 5; top: 0; left: 0; right: 0; height: 48px; min-height: 0; gap: 8px;
+    padding: 2px calc(8px + env(safe-area-inset-right)) 2px calc(12px + env(safe-area-inset-left));
+    background: linear-gradient(rgba(11, 11, 12, .88), rgba(11, 11, 12, .55) 70%, rgba(11, 11, 12, 0)); border-bottom: 0; pointer-events: none }
+  #head > *, #mechHead > * { pointer-events: auto }
+  #head .tt, #mechHead .tt { pointer-events: none }
+  #head h1, #mechHead h2 { font-size: 14px } #head .sub, #mechHead .sub { display: none }
+  #mech #mechHead { min-height: 0 }
+  #hint { display: none }
+  #vistePres { left: calc(8px + env(safe-area-inset-left)); bottom: calc(6px + env(safe-area-inset-bottom)); max-width: calc(46% - 8px - env(safe-area-inset-left)) }
+  #parts { position: absolute; z-index: 4; left: calc(46% + 8px); right: calc(62px + env(safe-area-inset-right)); bottom: calc(6px + env(safe-area-inset-bottom));
+    padding: 3px; gap: 4px; background: var(--pannello); border: 1px solid var(--bordo); border-radius: 12px; box-shadow: var(--ombra) }
+  #bHome { right: calc(8px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)) }
+  #sheet { position: absolute; z-index: 3; top: 52px; right: calc(8px + env(safe-area-inset-right)); bottom: calc(64px + env(safe-area-inset-bottom));
+    width: min(340px, 40vw); max-height: none; border: 1px solid var(--bordo); border-radius: 14px; box-shadow: var(--ombra) }
+  /* gemello: barra dei comandi in basso sovrapposta, pannelli sotto l'header */
+  #mechBar { position: absolute; z-index: 4; left: calc(8px + env(safe-area-inset-left)); right: calc(8px + env(safe-area-inset-right)); bottom: calc(6px + env(safe-area-inset-bottom));
+    padding: 3px; background: var(--pannello); border: 1px solid var(--bordo); border-radius: 12px; box-shadow: var(--ombra) }
+  #mechLegend, #mechChecks { top: 54px; left: calc(12px + env(safe-area-inset-left)) }
+  #mechInfo { top: 54px; right: calc(12px + env(safe-area-inset-right)) }
+  #mechPanel { bottom: calc(64px + env(safe-area-inset-bottom)) }
+  #mechScale { bottom: calc(64px + env(safe-area-inset-bottom)) !important }
+  #mechChecks { max-height: calc(100% - 130px) }
+}
+
+/* fase 3 (punto 11): linee guida dei badge numerati spostati a raggiera (sotto i badge, sopra il canvas) */
+#dotLines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible }
+#dotLines path { fill: none; stroke: rgba(255, 255, 255, .8); stroke-width: 1.2 }

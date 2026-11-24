@@ -13,7 +13,7 @@ import { integra } from './meccanismo/integrazione.js';
 import * as AMBI from './ambiente/ambiente.js';
 import { qualita, TEST } from './motore/qualita.js';
 import { Fuoco } from './focus/selezione.js';
-import { FLAGS } from './motore/perf.js';
+import { FLAGS, DIAG } from './motore/perf.js';
 import { aggiungiRim } from './materiali/rim.js';
 import { renderables } from './ui/presentazione.js';
 
@@ -49,6 +49,8 @@ const luceContorno = new THREE.DirectionalLight(0xffffff, 0); if (!FLAGS.rim) sc
 if (FLAGS.rim) for (const o of renderables) if (o.isMesh) { const ms = Array.isArray(o.userData.orig) ? o.userData.orig : [o.userData.orig]; ms.forEach(aggiungiRim); }
 UI.impostaFuoco(new Fuoco(renderer, scene, camera, luceContorno, FLAGS.rim));
 UI.richiedi();
+// diagnosi da telefono (?diag=1): chunk separato, parte da sola
+if (DIAG) import('./motore/diag.js').then(m => m.avviaDiagnosi());
 
 window.__tempi = window.__tempi || {};
 requestAnimationFrame(() => requestAnimationFrame(() => {
